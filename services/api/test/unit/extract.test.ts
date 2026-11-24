@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractFromHtml, extractFromStructured, parsePrice } from '../../src/modules/retail/extract.ts';
+import { cleanJsonLd, extractFromHtml, extractFromStructured, parsePrice } from '../../src/modules/retail/extract.ts';
 import { inferSubcategory, inferMaterials } from '../../src/modules/retail/categorize.ts';
 import { retailerForHost } from '../../src/modules/retail/registry.ts';
 
@@ -36,6 +36,17 @@ describe('structured data extraction', () => {
     expect(p.title?.value).toBe('Vaquero recto');
     expect(p.price?.value.cents).toBe(2999);
     expect(p.canonicalUrl).toBe('https://shop.example.test/es/p/9');
+  });
+  it('unwraps comment-wrapped JSON-LD closed with --> or --!> and drops trailing commas', () => {
+    const body = '{"@type":"Product","name":"Camisa lino","offers":{"price":"39.95","priceCurrency":"EUR",},}';
+    for (const end of ['-->', '--!>']) {
+      expect(cleanJsonLd(`\n <!--\n${body}\n${end} `)).toBe('{"@type":"Product","name":"Camisa lino","offers":{"price":"39.95","priceCurrency":"EUR"}}');
+      const p = extractFromStructured({ jsonLd: [`<!--${body}${end}`], meta: {}, title: null, baseUrl: 'https://shop.example.test/p/2' });
+      expect(p.title?.value).toBe('Camisa lino');
+      expect(p.price?.value.cents).toBe(3995);
+    }
+    // An unwrapped body is left as is (apart from trailing commas).
+    expect(cleanJsonLd('{"a":[1,2,]}')).toBe('{"a":[1,2]}');
   });
   it('uses microdata when there is no JSON-LD (e.g. Mango-style pages)', () => {
     const html = `<div itemscope itemtype="https://schema.org/Product"><h1 itemprop="name">Abrigo lana cruzado</h1><meta itemprop="price" content="119.99"><meta itemprop="priceCurrency" content="EUR"><link itemprop="availability" href="https://schema.org/InStock"><img itemprop="image" src="https://cdn.example.test/x.jpg"></div>`;

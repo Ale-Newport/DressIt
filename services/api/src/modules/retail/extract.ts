@@ -96,6 +96,20 @@ function imagesOf(v: unknown, base: string): string[] {
   return [...new Set(out)].slice(0, 8);
 }
 
+/** A JSON-LD body wrapped in a legacy HTML comment; HTML also ends comments with `--!>`. */
+const COMMENT_WRAPPED = /^<!--([\s\S]*?)--!?>$/;
+
+/**
+ * Prepare a JSON-LD script body for `JSON.parse`: unwrap a legacy `<!-- … -->` comment and drop
+ * trailing commas. Not a sanitiser: the result is only parsed as JSON, never rendered.
+ */
+export function cleanJsonLd(raw: string): string {
+  let body = raw.trim();
+  const wrapped = COMMENT_WRAPPED.exec(body);
+  if (wrapped) body = (wrapped[1] ?? '').trim();
+  return body.replace(/,\s*([}\]])/g, '$1');
+}
+
 /** Flatten JSON-LD blocks (arrays, @graph) into nodes. */
 export function jsonLdNodes(blocks: string[]): Json[] {
   const nodes: Json[] = [];
@@ -108,9 +122,7 @@ export function jsonLdNodes(blocks: string[]): Json[] {
   };
   for (const raw of blocks) {
     try {
-      // Some sites ship HTML-escaped or trailing-comma JSON; try a light cleanup.
-      const cleaned = raw.trim().replace(/^<!--|-->$/g, '').replace(/,\s*([}\]])/g, '$1');
-      visit(JSON.parse(cleaned));
+      visit(JSON.parse(cleanJsonLd(raw)));
     } catch {
       /* invalid block: skip */
     }
