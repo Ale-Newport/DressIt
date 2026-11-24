@@ -17,7 +17,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
 ![Python](https://img.shields.io/badge/vision-PyTorch-EE4C2C?logo=pytorch&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-214-brightgreen)
+![Tests](https://img.shields.io/badge/tests-215-brightgreen)
 
 [What it is](#what-it-is) ·
 [The honest part](#the-honest-part) ·
@@ -189,7 +189,7 @@ cd services/vision && VISION_BACKEND=stub uv run pytest -q
 | Suite | Tests | Covers |
 |---|---|---|
 | `apps/mobile` | 60 | API client (token refresh, errors), components, accessibility, screens against recorded API responses, regressions found in the simulator |
-| `services/api` | 66 | 33 integration tests against a real PostgreSQL with RLS: only available garments in outfits, weather changes recommendations, feedback changes the ranking, no near-duplicate purchases, stale prices flagged, users never mixed, providers going down |
+| `services/api` | 67 | 33 integration tests against a real PostgreSQL with RLS: only available garments in outfits, weather changes recommendations, feedback changes the ranking, no near-duplicate purchases, stale prices flagged, users never mixed, providers going down |
 | `packages/stylist-engine` | 24 | Determinism, complete outfits, whole-day weather, formality, learning, purchase utility, 1,500-garment wardrobe |
 | `packages/shared` | 14 | CIEDE2000 against published reference values, colour families, vocabulary integrity |
 | `services/vision` | 50 | Colour extraction, perceptual hashing, HTTP contract, abstention thresholds |
