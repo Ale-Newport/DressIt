@@ -132,7 +132,12 @@ def delta_e2000(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
     Sc = 1 + 0.045 * Cbarp
     Sh = 1 + 0.015 * Cbarp * T
     Rt = -np.sin(2 * dTheta * rad) * Rc
-    return np.sqrt((dLp / Sl) ** 2 + (dCp / Sc) ** 2 + (dHp / Sh) ** 2 + Rt * (dCp / Sc) * (dHp / Sh))
+    return np.sqrt(
+        (dLp / Sl) ** 2
+        + (dCp / Sc) ** 2
+        + (dHp / Sh) ** 2
+        + Rt * (dCp / Sc) * (dHp / Sh)
+    )
 
 
 @lru_cache(maxsize=1)
@@ -143,7 +148,11 @@ def _family_table() -> tuple[tuple[str, ...], np.ndarray]:
 
 def nearest_color_family(color: str | np.ndarray) -> tuple[str, float]:
     """Nearest non-metallic colour family by CIEDE2000 → ``(family_id, distance)``."""
-    lab = hex_to_lab(color) if isinstance(color, str) else np.asarray(color, dtype=np.float64)
+    lab = (
+        hex_to_lab(color)
+        if isinstance(color, str)
+        else np.asarray(color, dtype=np.float64)
+    )
     ids, labs = _family_table()
     d = delta_e2000(lab[None, :], labs)
     i = int(np.argmin(d))
@@ -161,7 +170,9 @@ class DominantColor:
         return {"hex": self.hex, "family": self.family, "share": round(self.share, 4)}
 
 
-def kmeans_lab(points: np.ndarray, k: int, *, iters: int = 30, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+def kmeans_lab(
+    points: np.ndarray, k: int, *, iters: int = 30, seed: int = 0
+) -> tuple[np.ndarray, np.ndarray]:
     """Deterministic k-means++ (Euclidean in Lab ≈ ΔE76). Returns ``(centroids, labels)``."""
     n = points.shape[0]
     k = max(1, min(k, n))
@@ -181,9 +192,16 @@ def kmeans_lab(points: np.ndarray, k: int, *, iters: int = 30, seed: int = 0) ->
         dist = np.sum((points[:, None, :] - centroids[None, :, :]) ** 2, axis=2)
         new_labels = np.argmin(dist, axis=1)
         new_centroids = np.array(
-            [points[new_labels == j].mean(axis=0) if np.any(new_labels == j) else centroids[j] for j in range(len(centroids))]
+            [
+                points[new_labels == j].mean(axis=0)
+                if np.any(new_labels == j)
+                else centroids[j]
+                for j in range(len(centroids))
+            ]
         )
-        converged = np.array_equal(new_labels, labels) and np.allclose(new_centroids, centroids)
+        converged = np.array_equal(new_labels, labels) and np.allclose(
+            new_centroids, centroids
+        )
         labels, centroids = new_labels, new_centroids
         if converged:
             break
@@ -216,13 +234,17 @@ def extract_colors(
     if px.shape[0] < 16:
         return []
     if px.shape[0] > max_samples:
-        idx = np.random.default_rng(seed).choice(px.shape[0], size=max_samples, replace=False)
+        idx = np.random.default_rng(seed).choice(
+            px.shape[0], size=max_samples, replace=False
+        )
         px = px[np.sort(idx)]
     lab = rgb_to_lab(px.astype(np.float64))
     centroids, labels = kmeans_lab(lab, k, seed=seed)
     # [centroid, weight, member k-means labels]
     clusters: list[list] = [
-        [centroids[j], float(np.sum(labels == j)), {j}] for j in range(len(centroids)) if np.any(labels == j)
+        [centroids[j], float(np.sum(labels == j)), {j}]
+        for j in range(len(centroids))
+        if np.any(labels == j)
     ]
 
     def family(c: np.ndarray) -> str:
@@ -233,19 +255,29 @@ def extract_colors(
         for i in range(len(clusters)):
             for j in range(i + 1, len(clusters)):
                 d = float(delta_e2000(clusters[i][0], clusters[j][0]))
-                limit = same_family_merge_delta_e if family(clusters[i][0]) == family(clusters[j][0]) else merge_delta_e
+                limit = (
+                    same_family_merge_delta_e
+                    if family(clusters[i][0]) == family(clusters[j][0])
+                    else merge_delta_e
+                )
                 if d < limit and (best is None or d < best[0]):
                     best = (d, i, j)
         if best is None:
             break
         _, i, j = best
         wi, wj = clusters[i][1], clusters[j][1]
-        merged = [(clusters[i][0] * wi + clusters[j][0] * wj) / (wi + wj), wi + wj, clusters[i][2] | clusters[j][2]]
+        merged = [
+            (clusters[i][0] * wi + clusters[j][0] * wj) / (wi + wj),
+            wi + wj,
+            clusters[i][2] | clusters[j][2],
+        ]
         clusters = [c for t, c in enumerate(clusters) if t not in (i, j)] + [merged]
 
     total = sum(c[1] for c in clusters)
     clusters.sort(key=lambda c: c[1], reverse=True)
-    kept = [c for c in clusters if c[1] / total >= min_share][:max_colors] or clusters[:1]
+    kept = [c for c in clusters if c[1] / total >= min_share][:max_colors] or clusters[
+        :1
+    ]
     kept_total = sum(c[1] for c in kept)
     out: list[DominantColor] = []
     for _, weight, members in kept:

@@ -40,7 +40,11 @@ class Quality:
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
-        return {"blur": round(self.blur, 3), "brightness": round(self.brightness, 3), "warnings": list(self.warnings)}
+        return {
+            "blur": round(self.blur, 3),
+            "brightness": round(self.brightness, 3),
+            "warnings": list(self.warnings),
+        }
 
 
 def estimate_blur_sigma(gray: np.ndarray, reblur_sigma: float = 2.0) -> float:
@@ -55,7 +59,11 @@ def estimate_blur_sigma(gray: np.ndarray, reblur_sigma: float = 2.0) -> float:
     h, w = gray.shape[:2]
     scale = 512.0 / max(h, w)
     if abs(scale - 1.0) > 1e-3:
-        gray = cv2.resize(gray, (max(8, round(w * scale)), max(8, round(h * scale))), interpolation=cv2.INTER_AREA)
+        gray = cv2.resize(
+            gray,
+            (max(8, round(w * scale)), max(8, round(h * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
     g = gray.astype(np.float32)
 
     def grad_mag(x: np.ndarray) -> np.ndarray:
@@ -64,7 +72,9 @@ def estimate_blur_sigma(gray: np.ndarray, reblur_sigma: float = 2.0) -> float:
         return np.hypot(gx, gy)
 
     peak = float(np.percentile(grad_mag(g), 99.5))
-    peak_reblurred = float(np.percentile(grad_mag(cv2.GaussianBlur(g, (0, 0), reblur_sigma)), 99.5))
+    peak_reblurred = float(
+        np.percentile(grad_mag(cv2.GaussianBlur(g, (0, 0), reblur_sigma)), 99.5)
+    )
     if peak_reblurred < 1.5:
         return 0.0
     ratio = peak / peak_reblurred

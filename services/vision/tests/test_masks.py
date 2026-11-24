@@ -6,7 +6,12 @@ import numpy as np
 
 from app.models.base import Detection
 from app.pipeline.analyze import Candidate, _layer
-from app.pipeline.masks import decontaminate_edges, region_view, support_removal, thin_border_structures
+from app.pipeline.masks import (
+    decontaminate_edges,
+    region_view,
+    support_removal,
+    thin_border_structures,
+)
 from app.pipeline.refine import promote_head_forms, rank_proposals
 
 
@@ -22,7 +27,9 @@ def test_support_removed_garment_kept():
     garment = _box(shape, 60, 190, 40, 160)
     hook = _box(shape, 10, 62, 95, 105)  # hanger hook touching the garment's top edge
     fg = garment | hook
-    remove = support_removal(fg, [garment, hook], np.array([0.01, 0.9]), min_prob=0.5, max_area=0.6)
+    remove = support_removal(
+        fg, [garment, hook], np.array([0.01, 0.9]), min_prob=0.5, max_area=0.6
+    )
     assert remove[20, 100] and remove[40, 100]
     # The garment pixels the hook region overlaps (rows 60–61) stay: the garment is the core.
     assert not remove[61, 100]
@@ -33,9 +40,13 @@ def test_low_probability_or_large_region_is_not_removed():
     shape = (100, 100)
     fg = _box(shape, 10, 90, 10, 90)
     part = _box(shape, 10, 30, 10, 90)
-    assert not support_removal(fg, [part], np.array([0.4]), min_prob=0.5, max_area=0.6).any()
+    assert not support_removal(
+        fg, [part], np.array([0.4]), min_prob=0.5, max_area=0.6
+    ).any()
     big = _box(shape, 10, 80, 10, 90)  # 87 % of the foreground: never a support
-    assert not support_removal(fg, [big], np.array([0.99]), min_prob=0.5, max_area=0.6).any()
+    assert not support_removal(
+        fg, [big], np.array([0.99]), min_prob=0.5, max_area=0.6
+    ).any()
 
 
 def test_box_around_garment_and_support_does_not_protect_the_support():
@@ -45,7 +56,9 @@ def test_box_around_garment_and_support_does_not_protect_the_support():
     head = _box(shape, 90, 190, 30, 90)
     fg = hat | head
     both = hat | head
-    remove = support_removal(fg, [hat, head, both], np.array([0.0, 0.8, 0.0]), min_prob=0.5, max_area=0.6)
+    remove = support_removal(
+        fg, [hat, head, both], np.array([0.0, 0.8, 0.0]), min_prob=0.5, max_area=0.6
+    )
     assert remove[150, 60] and not remove[50, 60]
     assert (remove == head).all()
 
@@ -55,7 +68,9 @@ def test_total_removal_guard():
     fg = _box(shape, 0, 100, 0, 100)
     a = _box(shape, 0, 100, 0, 40)
     b = _box(shape, 0, 100, 40, 80)  # each 40 %, together 80 % > max_area
-    assert not support_removal(fg, [a, b], np.array([0.9, 0.9]), min_prob=0.5, max_area=0.6).any()
+    assert not support_removal(
+        fg, [a, b], np.array([0.9, 0.9]), min_prob=0.5, max_area=0.6
+    ).any()
 
 
 def test_head_form_promotion_only_at_the_bottom_under_a_hat():
@@ -65,10 +80,14 @@ def test_head_form_promotion_only_at_the_bottom_under_a_hat():
     logo = _box(shape, 30, 50, 40, 60)
     fg = hat | head
     p = np.array([0.0, 0.3, 0.3])
-    out = promote_head_forms(fg, [hat, head, logo], p, np.array([False, True, True]), min_prob=0.25, to=0.5)
+    out = promote_head_forms(
+        fg, [hat, head, logo], p, np.array([False, True, True]), min_prob=0.25, to=0.5
+    )
     assert out[1] == 0.5  # the head form reaches the bottom and starts below the top
     assert out[2] == 0.3  # a form-looking logo on the hat itself is not promoted
-    not_form = promote_head_forms(fg, [hat, head], p[:2], np.array([False, False]), min_prob=0.25, to=0.5)
+    not_form = promote_head_forms(
+        fg, [hat, head], p[:2], np.array([False, False]), min_prob=0.25, to=0.5
+    )
     assert not_form[1] == 0.3
 
 
@@ -76,15 +95,21 @@ def test_head_form_promotion_only_at_the_bottom_under_a_hat():
 def test_clothesline_through_frame_removed_strap_kept():
     shape = (200, 300)
     garment = _box(shape, 50, 190, 100, 200)
-    line = _box(shape, 60, 63, 0, 300)  # 3 px line across the frame, through the garment
-    strap = np.zeros(shape, bool)  # thin handle loop above the garment, inside the photo
+    line = _box(
+        shape, 60, 63, 0, 300
+    )  # 3 px line across the frame, through the garment
+    strap = np.zeros(
+        shape, bool
+    )  # thin handle loop above the garment, inside the photo
     strap[20:23, 120:180] = True
     strap[20:52, 120:123] = True
     strap[20:52, 177:180] = True
     fg = garment | line | strap
     thin = thin_border_structures(fg, radius=3)
     assert thin[61, 10] and thin[61, 290]  # the line outside the garment
-    assert not thin[21, 150] and not thin[40, 121]  # the strap does not reach the border
+    assert (
+        not thin[21, 150] and not thin[40, 121]
+    )  # the strap does not reach the border
     assert not thin[120, 150]  # the garment body
 
 
@@ -100,7 +125,9 @@ def test_decontamination_removes_background_halo():
     dist = np.hypot(yy - 32, xx - 32)
     alpha = np.clip((20.0 - dist) / 3.0 + 0.5, 0.0, 1.0)  # soft-edged disc
     red, white = np.array([200, 20, 20.0]), np.array([255, 255, 255.0])
-    observed = alpha[..., None] * red + (1 - alpha[..., None]) * white  # edge pixels mixed with white
+    observed = (
+        alpha[..., None] * red + (1 - alpha[..., None]) * white
+    )  # edge pixels mixed with white
     rgb = observed.round().astype(np.uint8)
     a8 = (alpha * 255).round().astype(np.uint8)
     out = decontaminate_edges(rgb, a8)
@@ -109,7 +136,9 @@ def test_decontamination_removes_background_halo():
     after = np.abs(out[edge].astype(float) - red).mean()
     assert after < 0.5 * before
     # Opaque and transparent pixels are untouched.
-    assert (out[a8 >= 250] == rgb[a8 >= 250]).all() and (out[a8 == 0] == rgb[a8 == 0]).all()
+    assert (out[a8 >= 250] == rgb[a8 >= 250]).all() and (
+        out[a8 == 0] == rgb[a8 == 0]
+    ).all()
 
 
 def test_region_view_is_square_on_white():
@@ -137,7 +166,10 @@ def test_rank_proposals_drops_full_frame_and_duplicates():
 # ---------------------------------------------------------------- layering
 def _cand(mask, cat, sub):
     c = Candidate(prob=mask.astype(np.float32), mask=mask)
-    c.attrs = {"category": {"value": cat, "confidence": 0.9}, "subcategory": {"value": sub, "confidence": 0.9} if sub else None}
+    c.attrs = {
+        "category": {"value": cat, "confidence": 0.9},
+        "subcategory": {"value": sub, "confidence": 0.9} if sub else None,
+    }
     return c
 
 
@@ -163,6 +195,56 @@ def test_layer_keeps_same_category_or_unrecognised():
 def test_single_mode_layering_ignores_accessories():
     shape = (200, 100)
     skirt = _cand(_box(shape, 0, 200, 0, 100), "bottom", "falda")
-    belt = _cand(_box(shape, 0, 20, 0, 100), "accessory", "cinturon")  # the skirt's own waistband
+    belt = _cand(
+        _box(shape, 0, 20, 0, 100), "accessory", "cinturon"
+    )  # the skirt's own waistband
     assert _layer([skirt, belt], clothing_only=True) == []
     assert _layer([skirt, belt]) == [skirt]  # multi mode keeps subtracting it
+
+
+def test_upright_angle_straightens_a_tilted_symmetric_garment():
+    from PIL import Image, ImageDraw
+
+    from app.pipeline.masks import rotate_cutout, upright_angle
+
+    img = Image.new("L", (300, 300), 0)
+    d = ImageDraw.Draw(img)
+    d.rectangle((100, 60, 200, 260), fill=255)
+    d.rectangle((40, 60, 260, 110), fill=255)
+    tilted = img.rotate(12)
+    angle, sym_at, sym_zero = upright_angle(np.asarray(tilted) > 0)
+    assert abs(angle + 12) <= 1.0 and sym_at - sym_zero > 0.2
+    # Rotating the cutout by that angle makes it symmetric again.
+    rgba = Image.merge("RGBA", (tilted, tilted, tilted, tilted))
+    fixed = rotate_cutout(rgba, angle)
+    a2, s2, s0 = upright_angle(np.asarray(fixed.getchannel("A")) > 127)
+    assert abs(a2) <= 1.0 and s0 > 0.9
+
+
+def test_upright_angle_leaves_straight_garments_alone():
+    from PIL import Image, ImageDraw
+
+    from app.pipeline.masks import upright_angle
+
+    img = Image.new("L", (300, 300), 0)
+    ImageDraw.Draw(img).rectangle((100, 60, 200, 260), fill=255)
+    angle, sym_at, sym_zero = upright_angle(np.asarray(img) > 0)
+    assert sym_at - sym_zero < 0.02
+
+
+def test_carve_thin_near_removes_strands_by_negative_points_only():
+    import numpy as np
+
+    from app.pipeline.masks import carve_thin_near
+
+    mask = np.zeros((200, 200), bool)
+    mask[60:180, 40:160] = True  # the garment body
+    mask[20:60, 150:153] = True  # a hair strand over the shoulder (3 px wide)
+    mask[20:60, 50:53] = True  # another strand, far from the negative point
+    out = carve_thin_near(mask, [(151, 40)], radius=3, reach=20)
+    assert not out[
+        30:55, 150:153
+    ].any()  # the strand near the "not garment" point is gone
+    assert out[30:55, 50:53].all()  # the other one is untouched (no point there)
+    assert out[100, 100] and out[62, 155]  # the body is kept, even near the point
+    assert carve_thin_near(mask, [], radius=3, reach=20) is mask

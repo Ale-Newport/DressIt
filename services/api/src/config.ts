@@ -25,6 +25,27 @@ const schema = z.object({
   S3_FORCE_PATH_STYLE: bool,
   VISION_SERVICE_URL: z.string().default('http://localhost:8001'),
   VISION_TIMEOUT_MS: z.coerce.number().default(120_000),
+  // Image generation (studio photos, avatar renders) through a ComfyUI server. Empty = disabled.
+  IMAGEGEN_COMFY_URL: z.string().optional(),
+  IMAGEGEN_TIMEOUT_MS: z.coerce.number().default(15 * 60_000),
+  IMAGEGEN_STUDIO_WORKFLOW: z.string().default('studio'),
+  IMAGEGEN_AVATAR_WORKFLOW: z.string().default('avatar'),
+  // Dedicated try-on service (services/tryon). Empty = only the joint (generative) method.
+  TRYON_SERVICE_URL: z.string().optional(),
+  TRYON_STEPS: z.coerce.number().int().min(4).max(50).default(20),
+  TRYON_TIMEOUT_MS: z.coerce.number().default(10 * 60_000),
+  /** Default try-on method when both are available (chosen from the benchmark in docs/probador-virtual.md). */
+  AVATAR_METHOD: z.enum(['sequential', 'joint']).default('sequential'),
+  // Gate on the worn garments (Sapiens2 regions vs the real garment): calibrated in docs/probador-virtual.md.
+  TRYON_MIN_SIMILARITY: z.coerce.number().default(0.6),
+  TRYON_MAX_DELTA_E: z.coerce.number().default(15),
+  // Fidelity gate for studio photos: minimum embedding similarity and maximum colour difference.
+  IMAGEGEN_MIN_SIMILARITY: z.coerce.number().default(0.85),
+  IMAGEGEN_MAX_DELTA_E: z.coerce.number().default(12),
+  // Avatar renders: minimum mean similarity of the outfit's garments found in the render. Only a
+  // filter for gross failures: on worn garments the detector is too weak to judge details (a good
+  // and a wrong render both scored ~0.66 on 2026-11-24); the user judges the result next to the outfit.
+  IMAGEGEN_AVATAR_MIN_SIMILARITY: z.coerce.number().default(0.5),
   OPEN_METEO_API_KEY: z.string().optional(),
   LINK_IMPORT_USER_AGENT: z.string().default('DressItLinkPreview/0.1 (+https://github.com/Ale-Newport/DressIt)'),
   LINK_IMPORT_TIMEOUT_MS: z.coerce.number().default(10_000),

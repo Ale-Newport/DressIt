@@ -125,6 +125,14 @@ export default {
       },
       analytics: { title: 'Analítica de uso', body: 'Datos agregados y anónimos para mejorar la app.' },
       marketing: { title: 'Comunicaciones', body: 'Novedades y ofertas por correo.' },
+      ai_image_generation: {
+        title: 'Imágenes generadas con IA',
+        body: 'Crear fotos de estudio de tus prendas y verte con tus conjuntos con un modelo de imagen en nuestros servidores. Las imágenes generadas siempre se marcan como tales.',
+      },
+      avatar: {
+        title: 'Tu avatar',
+        body: 'Guardar una foto de tu cara y otra de cuerpo entero solo para crear imágenes tuyas con tus conjuntos. No se usan para identificarte. Si lo desactivas se borran al momento.',
+      },
     },
     requiredNote: 'Para retirar este consentimiento, borra tu cuenta desde Privacidad y datos.',
   },

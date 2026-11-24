@@ -44,7 +44,12 @@ def _hf_revision(repo_id: str) -> str:
     try:
         from huggingface_hub.constants import HF_HUB_CACHE
 
-        ref = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}" / "refs" / "main"
+        ref = (
+            Path(HF_HUB_CACHE)
+            / f"models--{repo_id.replace('/', '--')}"
+            / "refs"
+            / "main"
+        )
         return ref.read_text().strip()[:12]
     except Exception:
         return "unknown"
@@ -107,7 +112,9 @@ class TorchBackend:
     def _load_clip(self) -> tuple[Any, Any, Any]:
         import open_clip
 
-        model, _, preprocess = open_clip.create_model_and_transforms(f"hf-hub:{self.embedding_model_id}")
+        model, _, preprocess = open_clip.create_model_and_transforms(
+            f"hf-hub:{self.embedding_model_id}"
+        )
         tokenizer = open_clip.get_tokenizer(f"hf-hub:{self.embedding_model_id}")
         model = model.to(self.device).eval()
         return model, preprocess, tokenizer
@@ -117,12 +124,17 @@ class TorchBackend:
         from rembg import new_session
 
         providers: list[Any] = ["CPUExecutionProvider"]
-        if self.settings.onnx_coreml and "CoreMLExecutionProvider" in ort.get_available_providers():
+        if (
+            self.settings.onnx_coreml
+            and "CoreMLExecutionProvider" in ort.get_available_providers()
+        ):
             # Apple Silicon: ~3x faster than CPU. The compiled CoreML model is cached on disk,
             # otherwise every process start pays ~12 s of compilation.
             cache = self.settings.models_cache / "rembg" / "coreml_cache"
             cache.mkdir(parents=True, exist_ok=True)
-            providers.insert(0, ("CoreMLExecutionProvider", {"ModelCacheDirectory": str(cache)}))
+            providers.insert(
+                0, ("CoreMLExecutionProvider", {"ModelCacheDirectory": str(cache)})
+            )
         # Model name is ALWAYS explicit: rembg's default (bria-rmbg) is non-commercial.
         return new_session(self.segmenter_name, providers=providers)
 
@@ -130,7 +142,11 @@ class TorchBackend:
         from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
         processor = AutoProcessor.from_pretrained(self.detector_id)
-        model = AutoModelForZeroShotObjectDetection.from_pretrained(self.detector_id).to(self.device).eval()
+        model = (
+            AutoModelForZeroShotObjectDetection.from_pretrained(self.detector_id)
+            .to(self.device)
+            .eval()
+        )
         return processor, model
 
     def _load_sam(self) -> tuple[Any, Any]:
@@ -152,7 +168,9 @@ class TorchBackend:
         if not images:
             return np.zeros((0, self.embedding_dim), np.float32)
         model, preprocess, _ = self._clip.get()
-        batch = torch.stack([preprocess(img.convert("RGB")) for img in images]).to(self.device)
+        batch = torch.stack([preprocess(img.convert("RGB")) for img in images]).to(
+            self.device
+        )
         with self._clip.run_lock, torch.inference_mode():
             feats = model.encode_image(batch, normalize=True)
         return feats.float().cpu().numpy().astype(np.float32)
@@ -167,7 +185,9 @@ class TorchBackend:
         for i in range(0, len(texts), 128):
             tokens = tokenizer(list(texts[i : i + 128])).to(self.device)
             with self._clip.run_lock, torch.inference_mode():
-                out.append(model.encode_text(tokens, normalize=True).float().cpu().numpy())
+                out.append(
+                    model.encode_text(tokens, normalize=True).float().cpu().numpy()
+                )
         return np.concatenate(out).astype(np.float32)
 
     # ------------------------------------------------------------- segmentation
@@ -180,24 +200,70 @@ class TorchBackend:
             mask = mask.resize(image.size, Image.Resampling.BILINEAR)
         return np.asarray(mask, dtype=np.float32) / 255.0
 
-    def segment_boxes(self, image: Image.Image, boxes: Sequence[tuple[float, float, float, float]]) -> list[np.ndarray]:
+    def segment_boxes(
+        self, image: Image.Image, boxes: Sequence[tuple[float, float, float, float]]
+    ) -> list[np.ndarray]:
         import torch
 
         if not boxes:
             return []
         processor, model = self._sam.get()
-        inputs = processor(images=image.convert("RGB"), input_boxes=[[list(map(float, b)) for b in boxes]], return_tensors="pt")
-        inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()}
+        inputs = processor(
+            images=image.convert("RGB"),
+            input_boxes=[[list(map(float, b)) for b in boxes]],
+            return_tensors="pt",
+        )
+        inputs = {
+            k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()
+        }
         with self._sam.run_lock, torch.inference_mode():
             outputs = model(**inputs, multimask_output=False)
-        masks = processor.post_process_masks(outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), binarize=False)[0]
+        masks = processor.post_process_masks(
+            outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), binarize=False
+        )[0]
         # (num_boxes, 1, H, W) logits → probabilities
         probs = torch.sigmoid(masks.float()).numpy()
         return [probs[i, 0].astype(np.float32) for i in range(probs.shape[0])]
 
+    def segment_points(
+        self,
+        image: Image.Image,
+        points: Sequence[tuple[float, float, int]],
+        box: tuple[float, float, float, float] | None = None,
+    ) -> np.ndarray:
+        import torch
+
+        processor, model = self._sam.get()
+        kwargs: dict[str, Any] = {
+            "input_points": [[[[float(x), float(y)] for x, y, _ in points]]],
+            "input_labels": [[[int(lbl) for _, _, lbl in points]]],
+        }
+        if box is not None:
+            kwargs["input_boxes"] = [[list(map(float, box))]]
+        inputs = processor(images=image.convert("RGB"), return_tensors="pt", **kwargs)
+        inputs = {
+            k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()
+        }
+        with self._sam.run_lock, torch.inference_mode():
+            outputs = model(**inputs, multimask_output=False)
+        masks = processor.post_process_masks(
+            outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), binarize=False
+        )[0]
+        return (
+            torch.sigmoid(masks.float())
+            .numpy()
+            .reshape(-1, *masks.shape[-2:])[0]
+            .astype(np.float32)
+        )
+
     # ---------------------------------------------------------------- detection
     def detect(
-        self, image: Image.Image, queries: Sequence[str], threshold: float, *, short_side: int | None = None
+        self,
+        image: Image.Image,
+        queries: Sequence[str],
+        threshold: float,
+        *,
+        short_side: int | None = None,
     ) -> list[Detection]:
         import torch
 
@@ -210,31 +276,52 @@ class TorchBackend:
         else:
             prompt = ". ".join(q.lower() for q in queries) + "."
             # Grounding DINO's default input is 800 px (shortest side); a smaller one is ~2x faster.
-            size = {"shortest_edge": short_side, "longest_edge": int(short_side * 5 / 3)} if short_side else None
-            inputs = processor(images=img, text=prompt, return_tensors="pt", **({"size": size} if size else {}))
-        inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()}
+            size = (
+                {"shortest_edge": short_side, "longest_edge": int(short_side * 5 / 3)}
+                if short_side
+                else None
+            )
+            inputs = processor(
+                images=img,
+                text=prompt,
+                return_tensors="pt",
+                **({"size": size} if size else {}),
+            )
+        inputs = {
+            k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()
+        }
         with self._detector.run_lock, torch.inference_mode():
             outputs = model(**inputs)
         outputs = _to_cpu(outputs)
         if is_owl:
             side = max(w, h)  # OWLv2 pads to a square at bottom/right
             res = processor.post_process_grounded_object_detection(
-                outputs, threshold=threshold, target_sizes=torch.tensor([[side, side]]), text_labels=[list(queries)]
+                outputs,
+                threshold=threshold,
+                target_sizes=torch.tensor([[side, side]]),
+                text_labels=[list(queries)],
             )[0]
         else:
             res = processor.post_process_grounded_object_detection(
-                outputs, inputs["input_ids"].cpu(), threshold=threshold, text_threshold=threshold,
+                outputs,
+                inputs["input_ids"].cpu(),
+                threshold=threshold,
+                text_threshold=threshold,
                 target_sizes=torch.tensor([[h, w]]),
             )[0]
         labels = res.get("text_labels") or res.get("labels") or []
         out: list[Detection] = []
-        for box, score, label in zip(res["boxes"].tolist(), res["scores"].tolist(), labels):
+        for box, score, label in zip(
+            res["boxes"].tolist(), res["scores"].tolist(), labels
+        ):
             x0, y0, x1, y1 = box
             x0, x1 = max(0.0, min(x0, w)), max(0.0, min(x1, w))
             y0, y1 = max(0.0, min(y0, h)), max(0.0, min(y1, h))
             if x1 - x0 < 2 or y1 - y0 < 2:
                 continue
-            out.append(Detection(box=(x0, y0, x1, y1), score=float(score), label=str(label)))
+            out.append(
+                Detection(box=(x0, y0, x1, y1), score=float(score), label=str(label))
+            )
         return out
 
     # ---------------------------------------------------------------------- OCR

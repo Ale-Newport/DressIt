@@ -30,7 +30,13 @@ Lista honesta de lo que **no** funciona todavía o funciona con restricciones.
 10. **Docker Compose** no se ha podido probar en la máquina de desarrollo (sin Docker); la configuración
     local equivalente (Homebrew) sí está probada.
 11. **S3**: el controlador S3 está implementado pero los tests usan almacenamiento local.
-12. **Probador virtual**: no implementado.
+12. **Probador virtual y fotos generadas** ([probador-virtual.md](probador-virtual.md),
+    [generacion-imagenes.md](generacion-imagenes.md)): funcionan en local con modelos abiertos, pero en
+    el Mac de desarrollo tardan minutos (1,5–2 min por prenda; ~3 min por foto de estudio); FASHN no
+    viste calzado ni complementos (van en una pasada de Qwen-Image-Edit); con ropa voluminosa en la foto
+    del avatar quedan artefactos en la cintura; el control de fidelidad compara aspecto y color por
+    zona, no detalles finos. SAM 3 no integrado (pesos tras formulario de acceso). Sapiens2 License y
+    EIPD de las fotos de cuerpo: revisión legal pendiente.
 13. **App móvil**: verificada en el simulador de iOS (ver [evidencia](evidence/ios-simulador-2026-11-24.md)).
     Sin verificar en tiempo de ejecución: extensión de compartir, arrastrar y soltar del planificador,
     exportación de imágenes, Android y iPhone físico (requiere firmar con tu equipo de Apple; la

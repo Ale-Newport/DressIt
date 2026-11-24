@@ -19,6 +19,8 @@ import { InlineJobQueue } from '../../src/jobs/queue.ts';
 import { unavailable } from '../../src/lib/errors.ts';
 import type { VisionAnalysis, VisionClient } from '../../src/modules/vision/client.ts';
 import { WeatherService } from '../../src/modules/weather/service.ts';
+import { ComfyError, type ImageGenerator } from '../../src/modules/imagegen/generator.ts';
+import type { ParsedRegions, TryonService } from '../../src/modules/imagegen/tryon.ts';
 
 export type WeatherScenario = 'cold_rain' | 'hot' | 'mild' | 'down';
 
@@ -59,14 +61,122 @@ export async function fakeWeatherFetch(url: string): Promise<Response> {
 export const visionState: { down: boolean; calls: number; subcategory: string | null } = { down: false, calls: 0, subcategory: 'camiseta' };
 
 /** Deterministic stand-in for services/vision (same JSON contract). */
-export function fakeVision(): VisionClient {
-  const embed = (buf: Buffer) => {
-    const h = createHash('sha256').update(buf).digest();
-    const v = Array.from({ length: 768 }, (_, i) => (h[i % 32]! - 128) / 128);
-    const n = Math.hypot(...v);
-    return v.map((x) => x / n);
+/** The fake vision service's embedding: deterministic per image bytes. */
+export function fakeEmbed(buf: Buffer): number[] {
+  const h = createHash('sha256').update(buf).digest();
+  const v = Array.from({ length: 768 }, (_, i) => (h[i % 32]! - 128) / 128);
+  const n = Math.hypot(...v);
+  return v.map((x) => x / n);
+}
+
+/** Fake image generator: returns `output` (or fails) and records what it was asked. */
+export const imagegenState: { output: Buffer | null; available: boolean; calls: string[]; lastAvatarBoard: Buffer | null } = {
+  output: null,
+  available: true,
+  calls: [],
+  lastAvatarBoard: null,
+};
+
+/** Mean colour of the non-white pixels of an image (the garments on a white board). */
+async function inkColor(img: Buffer): Promise<{ r: number; g: number; b: number }> {
+  const { data, info } = await sharp(img).flatten({ background: '#ffffff' }).raw().toBuffer({ resolveWithObject: true });
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let n = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    if (data[i]! > 240 && data[i + 1]! > 240 && data[i + 2]! > 240) continue;
+    r += data[i]!;
+    g += data[i + 1]!;
+    b += data[i + 2]!;
+    n++;
+  }
+  return n ? { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) } : { r: 255, g: 255, b: 255 };
+}
+
+/** Paints a horizontal band (fractions of the height) of an image with a colour. */
+async function paintBand(img: Buffer, from: number, to: number, color: { r: number; g: number; b: number }): Promise<Buffer> {
+  const { width = 300, height = 400 } = await sharp(img).metadata();
+  const band = await sharp({ create: { width: Math.round(width * 0.5), height: Math.max(1, Math.round(height * (to - from))), channels: 4, background: { ...color, alpha: 1 } } }).png().toBuffer();
+  return sharp(img).composite([{ input: band, left: Math.round(width * 0.25), top: Math.round(height * from) }]).png().toBuffer();
+}
+
+const BANDS = { upper: [0.15, 0.5], lower: [0.5, 0.88], shoes: [0.9, 0.98], face: [0.02, 0.12] } as const;
+
+/**
+ * Fake services/tryon: "dresses" a garment by painting its colour where it is worn (tops on the
+ * chest band, bottoms on the legs) and parses by reading those bands back — enough to exercise the
+ * sequential pipeline, its cache and the colour gate.
+ */
+export const tryonState: { available: boolean; calls: string[]; masks: boolean[]; composites: string[]; recolor: { r: number; g: number; b: number } | null } = { available: true, calls: [], masks: [], composites: [], recolor: null };
+
+export function fakeTryon(): TryonService {
+  return {
+    async health() {
+      return tryonState.available;
+    },
+    async tryon(person, garment, category, opts) {
+      tryonState.calls.push(category);
+      tryonState.masks.push(!!opts.mask);
+      if (!tryonState.available) throw new ComfyError('El probador virtual no responde.', true);
+      const color = tryonState.recolor ?? (await inkColor(garment));
+      const [from, to] = category === 'bottoms' ? BANDS.lower : category === 'one-pieces' ? [BANDS.upper[0], BANDS.lower[1]] : BANDS.upper;
+      return paintBand(person, from, to, color);
+    },
+    async composite(_base, edited, regions) {
+      tryonState.composites.push(regions.join(','));
+      return edited;
+    },
+    async parse(image) {
+      const { width = 300, height = 400 } = await sharp(image).metadata();
+      const out = {} as ParsedRegions;
+      for (const [k, [from, to]] of Object.entries(BANDS) as Array<[keyof ParsedRegions, readonly [number, number]]>) {
+        const crop = await sharp(image)
+          .extract({ left: Math.round(width * 0.3), top: Math.round(height * from), width: Math.round(width * 0.4), height: Math.max(1, Math.round(height * (to - from)) - 2) })
+          .ensureAlpha()
+          .png()
+          .toBuffer();
+        out[k] = { area: 0.1, png_base64: crop.toString('base64') };
+      }
+      return out;
+    },
   };
-  const cutout = () => sharp({ create: { width: 64, height: 80, channels: 4, background: { r: 30, g: 40, b: 70, alpha: 1 } } }).png().toBuffer();
+}
+
+export function fakeImageGenerator(): ImageGenerator {
+  return {
+    async info() {
+      const on = imagegenState.available;
+      return { available: on, studio: on, avatar: on, reason: on ? null : 'El generador de imágenes no está configurado en este servidor.', models: { studio: on ? 'fake-studio' : null, avatar: on ? 'fake-avatar' : null } };
+    },
+    async studio() {
+      imagegenState.calls.push('studio');
+      if (!imagegenState.output) throw new ComfyError('fallo simulado', false);
+      return imagegenState.output;
+    },
+    async avatar(input) {
+      imagegenState.calls.push('avatar');
+      imagegenState.lastAvatarBoard = input.outfitBoard;
+      if (!imagegenState.output) throw new ComfyError('fallo simulado', false);
+      return imagegenState.output;
+    },
+    hasWorkflow() {
+      return imagegenState.available;
+    },
+    async runWorkflow(name, images) {
+      imagegenState.calls.push(name);
+      if (!imagegenState.output) throw new ComfyError('fallo simulado', false);
+      // Shoes/accessories pass: keeps the person and paints the board's colour on the feet.
+      if (name === 'tryon-accessories') return paintBand(images.BODY_IMAGE!, ...BANDS.shoes, await inkColor(images.OUTFIT_IMAGE!));
+      return imagegenState.output;
+    },
+  };
+}
+
+export function fakeVision(): VisionClient {
+  const embed = fakeEmbed;
+  // The cut-out garment keeps the photo's (mean) colour, like the real service.
+  const cutout = (rgb: { r: number; g: number; b: number }) => sharp({ create: { width: 64, height: 80, channels: 4, background: { ...rgb, alpha: 1 } } }).png().toBuffer();
   return {
     async analyze(image: Buffer, _mime: string, mode: 'single' | 'multi'): Promise<VisionAnalysis> {
       visionState.calls++;
@@ -89,8 +199,31 @@ export function fakeVision(): VisionClient {
         embedding_model: 'fake-vision-test-double',
       });
       const items = mode === 'multi' ? [item('camiseta', 'top'), item('vaquero', 'bottom')] : [item(visionState.subcategory, visionState.subcategory ? 'top' : null)];
-      for (const it of items) it.cutout_png_base64 = (await cutout()).toString('base64');
+      for (const it of items) it.cutout_png_base64 = (await cutout({ r: r!, g: g!, b: b! })).toString('base64');
       return { image: { width: 100, height: 100, sha256: 'x', phash: null }, items };
+    },
+    async segmentPoints(image: Buffer, _mime: string, points: Array<[number, number, 0 | 1]>) {
+      visionState.calls++;
+      if (visionState.down) throw unavailable('El servicio de análisis de imágenes no está disponible.');
+      if (!points.some((p) => p[2] === 1)) throw unavailable('Marca al menos un punto sobre la prenda.');
+      const stats = await sharp(image).stats();
+      const [r, g, b] = stats.channels.map((c) => Math.round(c.mean));
+      const png = await sharp({ create: { width: 50, height: 60, channels: 4, background: { r: r!, g: g!, b: b!, alpha: 1 } } }).png().toBuffer();
+      return { cutout_png_base64: png.toString('base64'), bbox: [0.2, 0.2, 0.8, 0.8] as [number, number, number, number], mask_area_ratio: 0.36, colors: [] };
+    },
+    /** Same as the real comparator's contract: passes when the two cutouts have (nearly) the same mean colour. */
+    async compare(reference: Buffer, candidate: Buffer) {
+      const mean = async (b: Buffer) => (await sharp(b).stats()).channels.slice(0, 3).map((c) => c.mean);
+      const [a, b] = await Promise.all([mean(reference), mean(candidate)]);
+      const diff = Math.max(...a.map((x, i) => Math.abs(x - b[i]!)));
+      const passed = diff < 12;
+      return { shape_iou: 1, mean_delta_e: diff / 2, p90_delta_e: diff / 2, max_cell_delta_e: diff, ssim: passed ? 0.9 : 0.2, cells: 64, passed, reasons: passed ? [] : ['Ha cambiado el color de la prenda.'] };
+    },
+    /** The person cut out: the whole photo, opaque (coverage 1). */
+    async matte(image: Buffer) {
+      const png = await sharp(image).ensureAlpha().png().toBuffer();
+      const { width = 0, height = 0 } = await sharp(image).metadata();
+      return { png_base64: png.toString('base64'), width, height, coverage: 1 };
     },
     async embedImage(image: Buffer) {
       if (visionState.down) throw unavailable('El servicio de análisis de imágenes no está disponible.');
@@ -123,7 +256,9 @@ export async function startFixtureStore(): Promise<{ base: string; close: () => 
       { '@type': 'Offer', price: '89.95', priceCurrency: 'EUR', availability: 'https://schema.org/OutOfStock', itemOffered: { size: 'L' } },
     ],
   };
+  const productPhoto = await sharp({ create: { width: 300, height: 400, channels: 3, background: '#3c5a8c' } }).jpeg().toBuffer();
   const server: Server = createServer((req, res) => {
+    if (req.url === '/img/producto.jpg') return res.writeHead(200, { 'content-type': 'image/jpeg' }).end(productPhoto);
     if (req.url === '/robots.txt') return res.writeHead(200, { 'content-type': 'text/plain' }).end('User-agent: *\nDisallow: /privado/\n');
     if (req.url?.startsWith('/es/p/gabardina')) {
       return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<html><head><title>Gabardina</title><script type="application/ld+json">${JSON.stringify(productJsonLd)}</script></head><body>Producto</body></html>`);
@@ -149,10 +284,10 @@ export async function setupApp() {
   await admin.query(`truncate users, retailers, catalog_products, weather_snapshots, catalog_sync_runs cascade`);
   await admin.end();
   const storageDir = mkdtempSync(join(tmpdir(), 'dressit-test-'));
-  const cfg = loadConfig({ ...process.env, STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir, LINK_IMPORT_ALLOW_PRIVATE: 'true', NODE_ENV: 'test' });
+  const cfg = loadConfig({ ...process.env, STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir, LINK_IMPORT_ALLOW_PRIVATE: 'true', NODE_ENV: 'test', TRYON_MIN_SIMILARITY: '-1' });
   const { db: weatherDb } = createDb(cfg.DATABASE_URL, 2);
   const queue = new InlineJobQueue(1);
-  const built = await buildApp({ cfg, queue, inlineWorker: true, overrides: { weather: new WeatherService(weatherDb, undefined, fakeWeatherFetch as typeof fetch), vision: fakeVision() } });
+  const built = await buildApp({ cfg, queue, inlineWorker: true, overrides: { weather: new WeatherService(weatherDb, undefined, fakeWeatherFetch as typeof fetch), vision: fakeVision(), imagegen: fakeImageGenerator(), tryon: fakeTryon() } });
   const { app } = built;
   const close = async () => {
     await built.close();

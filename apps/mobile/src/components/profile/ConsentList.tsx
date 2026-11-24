@@ -15,6 +15,8 @@ export const OPTIONAL_CONSENTS: ConsentKind[] = [
   'calendar',
   'email_import',
   'ai_assistant_external',
+  'ai_image_generation',
+  'avatar',
   'analytics',
   'marketing',
 ];

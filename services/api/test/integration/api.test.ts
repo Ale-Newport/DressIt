@@ -276,6 +276,75 @@ describe('photo digitisation', () => {
     // accept-all skips duplicates
     expect((await t.app.inject({ method: 'POST', url: `/v1/imports/${job2.id}/accept-all`, headers: u.auth })).json().accepted).toBe(0);
   });
+  it('proposes the official photo from an authorised catalogue and adds it only when confirmed', async () => {
+    const u = await registerUser(t);
+    const up = multipart(await testImage({ r: 60, g: 90, b: 140 }), { kind: 'garment_photo' });
+    const img = (await t.app.inject({ method: 'POST', url: '/v1/uploads', headers: { ...u.auth, ...up.headers }, payload: up.payload })).json();
+    const job = (await t.app.inject({ method: 'POST', url: '/v1/imports/photos', headers: u.auth, payload: { imageIds: [img.imageId], mode: 'single', source: 'camera' } })).json();
+    await t.queue.drain();
+    const det = (await t.app.inject({ method: 'GET', url: `/v1/imports/${job.id}`, headers: u.auth })).json().detections[0];
+    const garment = (await t.app.inject({ method: 'POST', url: `/v1/imports/${job.id}/detections/${det.id}/accept`, headers: u.auth, payload: {} })).json();
+    const admin = new pg.Client({ connectionString: t.adminUrl });
+    await admin.connect();
+    let productId: string;
+    try {
+      // A licensed catalogue product with the same appearance (same embedding) and a near miss.
+      const emb = (await admin.query('select embedding::text as e from garment_embeddings where garment_id = $1', [garment.id])).rows[0].e as string;
+      const retailer = (await admin.query("select id from retailers where id = 'decathlon'")).rows[0].id as string;
+      const insert = async (externalId: string, title: string, vector: string) => {
+        const p = (await admin.query("insert into catalog_products (retailer_id, external_id, title, category, subcategory, product_url, is_active) values ($1, $2, $3, 'top', 'camiseta', $4, true) returning id", [retailer, externalId, title, `${store.base}/es/p/gabardina`])).rows[0].id as string;
+        await admin.query("insert into product_images (product_id, url, license) values ($1, $2, 'licensed')", [p, `${store.base}/img/producto.jpg`]);
+        await admin.query("insert into product_embeddings (product_id, model, embedding) values ($1, 'fake', $2::vector)", [p, vector]);
+        return p;
+      };
+      productId = await insert('OFF-1', 'Camiseta técnica azul', emb);
+      const other = (JSON.parse(emb) as number[]).map((v, i) => (i % 2 ? -v : v));
+      await insert('OFF-2', 'Otra camiseta', `[${other.join(',')}]`);
+    } finally {
+      await admin.end();
+    }
+    const found = (await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}/official-photo`, headers: u.auth })).json();
+    expect(found.matches).toHaveLength(1);
+    expect(found.matches[0]).toMatchObject({ productId, retailer: 'Decathlon', similarity: 1 });
+    expect(found.message).toMatch(/confirma/);
+    // Nothing was added yet; confirming stores it with the retailer's attribution, keeping the user's photos.
+    expect((await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json().images.some((i: { license: string }) => i.license === 'retailer_licensed')).toBe(false);
+    const added = (await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/official-photo`, headers: u.auth, payload: { productId } })).json();
+    expect(added).toMatchObject({ license: 'retailer_licensed', attribution: 'Foto oficial de Decathlon', isCutout: false });
+    const detail = (await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json();
+    expect(detail.images.map((i: { id: string }) => i.id)).toContain(added.id);
+    expect(detail.image.id).not.toBe(added.id);
+    expect((await t.app.inject({ method: 'PUT', url: `/v1/garments/${garment.id}/primary-image`, headers: u.auth, payload: { imageId: added.id } })).statusCode).toBe(204);
+    expect((await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/official-photo`, headers: u.auth, payload: { productId: garment.id } })).statusCode).toBe(400);
+  });
+  it('lets the user correct a cutout with points, keeping every previous version', async () => {
+    const u = await registerUser(t);
+    const up = multipart(await testImage({ r: 60, g: 90, b: 140 }), { kind: 'garment_photo' });
+    const img = (await t.app.inject({ method: 'POST', url: '/v1/uploads', headers: { ...u.auth, ...up.headers }, payload: up.payload })).json();
+    const job = (await t.app.inject({ method: 'POST', url: '/v1/imports/photos', headers: u.auth, payload: { imageIds: [img.imageId], mode: 'single', source: 'camera' } })).json();
+    await t.queue.drain();
+    const det = (await t.app.inject({ method: 'GET', url: `/v1/imports/${job.id}`, headers: u.auth })).json().detections[0];
+    // The app shows the original photo to tap on.
+    const source = (await t.app.inject({ method: 'GET', url: `/v1/imports/${job.id}/detections/${det.id}/recut`, headers: u.auth })).json();
+    expect(source).toMatchObject({ id: img.imageId, isCutout: false });
+    // In review: the detection gets the corrected cutout.
+    const fixed = await t.app.inject({ method: 'POST', url: `/v1/imports/${job.id}/detections/${det.id}/recut`, headers: u.auth, payload: { points: [[0.5, 0.5, 1], [0.05, 0.9, 0]] } });
+    expect(fixed.statusCode, fixed.body).toBe(200);
+    expect(fixed.json()).toMatchObject({ isCutout: true });
+    expect((await t.app.inject({ method: 'GET', url: `/v1/imports/${job.id}`, headers: u.auth })).json().detections[0].cutout.id).toBe(fixed.json().id);
+    const garment = (await t.app.inject({ method: 'POST', url: `/v1/imports/${job.id}/detections/${det.id}/accept`, headers: u.auth, payload: {} })).json();
+    expect(garment.image.id).toBe(fixed.json().id);
+    // Already in the wardrobe: a new cutout becomes the picture and the previous one stays.
+    const again = (await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/recut`, headers: u.auth, payload: { points: [[0.4, 0.4, 1]] } })).json();
+    const detail = (await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json();
+    expect(detail.image.id).toBe(again.id);
+    expect(detail.images.map((i: { id: string }) => i.id)).toEqual(expect.arrayContaining([again.id, fixed.json().id]));
+    expect(detail.images[0].id).toBe(again.id);
+    // Even when the picture is a later cutout, the photo to correct is still the original.
+    expect((await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}/recut`, headers: u.auth })).json().id).toBe(img.imageId);
+    // Validation: points must be in the photo.
+    expect((await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/recut`, headers: u.auth, payload: { points: [[1.4, 0.4, 1]] } })).statusCode).toBe(400);
+  });
   it('detects several garments in one photo (batch) and requires the type when the model abstains', async () => {
     const u = await registerUser(t);
     const up = multipart(await testImage({ r: 120, g: 120, b: 120 }), { kind: 'garment_photo' });

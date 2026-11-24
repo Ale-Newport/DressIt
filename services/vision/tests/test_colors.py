@@ -37,7 +37,9 @@ SHARMA = [
 
 @pytest.mark.parametrize("a,b,expected", SHARMA)
 def test_ciede2000_reference_pairs(a, b, expected):
-    assert float(delta_e2000(np.array(a), np.array(b))) == pytest.approx(expected, abs=1e-4)
+    assert float(delta_e2000(np.array(a), np.array(b))) == pytest.approx(
+        expected, abs=1e-4
+    )
 
 
 def test_parity_with_typescript_implementation():
@@ -91,7 +93,9 @@ def test_stripes_give_two_colours_with_correct_shares():
     h, w, period = 200, 200, 20
     img = np.zeros((h, w, 3), np.uint8)
     for y in range(h):
-        img[y] = (31, 42, 68) if (y // (period // 2)) % 2 == 0 else (246, 246, 244)  # navy / white
+        img[y] = (
+            (31, 42, 68) if (y // (period // 2)) % 2 == 0 else (246, 246, 244)
+        )  # navy / white
     cols = extract_colors(img.reshape(-1, 3))
     fams = {c.family: c.share for c in cols}
     assert set(fams) == {"azul_marino", "blanco"}
@@ -113,7 +117,12 @@ def test_three_colours_sorted_by_share_and_capped():
     cols = extract_colors(px)
     assert [c.family for c in cols] == ["blanco", "rojo", "azul_marino"]
     assert [round(c.share, 1) for c in cols] == [0.6, 0.3, 0.1]
-    px4 = _pixels(((246, 246, 244), 4000), ((198, 40, 40), 3000), ((31, 42, 68), 2000), ((46, 125, 79), 1000))
+    px4 = _pixels(
+        ((246, 246, 244), 4000),
+        ((198, 40, 40), 3000),
+        ((31, 42, 68), 2000),
+        ((46, 125, 79), 1000),
+    )
     assert len(extract_colors(px4)) == 3
 
 

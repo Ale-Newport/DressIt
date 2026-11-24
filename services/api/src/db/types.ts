@@ -81,6 +81,27 @@ export interface AuthSessions {
   user_id: string;
 }
 
+export interface AvatarBases {
+  background: string;
+  created_at: Generated<Timestamp>;
+  error: string | null;
+  id: Generated<string>;
+  image_id: string | null;
+  status: Generated<string>;
+  user_id: string;
+  view: string;
+}
+
+export interface AvatarProfiles {
+  attested_adult: Generated<boolean>;
+  attested_self: Generated<boolean>;
+  body_image_id: string | null;
+  created_at: Generated<Timestamp>;
+  face_image_id: string | null;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface CalendarEvents {
   all_day: Generated<boolean>;
   created_at: Generated<Timestamp>;
@@ -183,6 +204,7 @@ export interface GarmentImages {
   bytes: number | null;
   created_at: Generated<Timestamp>;
   garment_id: string | null;
+  generated_by: string | null;
   height: number | null;
   id: Generated<string>;
   kind: string;
@@ -244,6 +266,28 @@ export interface GarmentTags {
   garment_id: string;
   tag_id: string;
   user_id: string;
+}
+
+export interface GenerationJobs {
+  attempts: Generated<number>;
+  avatar_base_id: string | null;
+  created_at: Generated<Timestamp>;
+  error: string | null;
+  fidelity: Json | null;
+  finished_at: Timestamp | null;
+  garment_id: string | null;
+  id: Generated<string>;
+  input: Generated<Json>;
+  kind: string;
+  method: string | null;
+  model: string | null;
+  outfit_id: string | null;
+  progress: Json | null;
+  result_image_id: string | null;
+  started_at: Timestamp | null;
+  status: Generated<string>;
+  user_id: string;
+  workflow: string | null;
 }
 
 export interface ImportDetections {
@@ -531,6 +575,13 @@ export interface Trips {
   user_id: string;
 }
 
+export interface TryonCache {
+  created_at: Generated<Timestamp>;
+  image_id: string;
+  key: string;
+  user_id: string;
+}
+
 export interface UserPreferences {
   avoided_colors: Generated<string[]>;
   budget_max_eur: number | null;
@@ -620,6 +671,8 @@ export interface DB {
   audit_events: AuditEvents;
   auth_identities: AuthIdentities;
   auth_sessions: AuthSessions;
+  avatar_bases: AvatarBases;
+  avatar_profiles: AvatarProfiles;
   calendar_events: CalendarEvents;
   catalog_products: CatalogProducts;
   catalog_sync_runs: CatalogSyncRuns;
@@ -630,6 +683,7 @@ export interface DB {
   garment_images: GarmentImages;
   garment_tags: GarmentTags;
   garments: Garments;
+  generation_jobs: GenerationJobs;
   import_detections: ImportDetections;
   import_jobs: ImportJobs;
   import_sources: ImportSources;
@@ -653,6 +707,7 @@ export interface DB {
   tags: Tags;
   trip_items: TripItems;
   trips: Trips;
+  tryon_cache: TryonCache;
   user_preferences: UserPreferences;
   users: Users;
   wardrobe_spaces: WardrobeSpaces;

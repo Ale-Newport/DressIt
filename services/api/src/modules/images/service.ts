@@ -8,8 +8,10 @@ import { badRequest } from '../../lib/errors.ts';
 const ALLOWED_FORMATS = new Set(['jpeg', 'png', 'webp', 'heif', 'avif', 'tiff']);
 const MAX_SIDE = 2560;
 
-const KIND_MAP: Record<UploadKind, 'original' | 'receipt' | 'label' | 'screenshot' | 'inspiration' | 'visual_search'> = {
+const KIND_MAP: Record<UploadKind, 'original' | 'receipt' | 'label' | 'screenshot' | 'inspiration' | 'visual_search' | 'self_face' | 'self_body'> = {
   garment_photo: 'original',
+  self_face: 'self_face',
+  self_body: 'self_body',
   receipt: 'receipt',
   label: 'label',
   screenshot: 'screenshot',
@@ -107,6 +109,52 @@ export async function storeCutout(ctx: AppContext, trx: Tx, userId: string, pare
       sha256: createHash('sha256').update(trimmed.data).digest('hex'),
       phash: await dHash(trimmed.data),
       parent_image_id: parentImageId,
+    })
+    .execute();
+  return id;
+}
+
+/**
+ * Stores an AI-generated image (studio photo: transparent PNG trimmed to the garment; avatar
+ * render: JPEG). `generated_by` records the model so the app can label it as generated.
+ */
+export async function storeGenerated(
+  ctx: AppContext,
+  trx: Tx,
+  userId: string,
+  image: Buffer,
+  kind: 'studio' | 'avatar_render',
+  opts: { model: string; garmentId?: string | null; parentImageId?: string | null },
+): Promise<string> {
+  const id = randomUUID();
+  const transparent = kind === 'studio';
+  // Machine-readable "AI-generated" marking in the file itself (EU AI Act art. 50); the app also labels it visibly.
+  const exif = { IFD0: { ImageDescription: `AI-generated image (${opts.model}) - DressIt`, Software: 'DressIt' } };
+  const out = transparent
+    ? await sharp(image).trim({ threshold: 1 }).withExif(exif).png({ compressionLevel: 8 }).toBuffer({ resolveWithObject: true }).catch(async () => sharp(image).withExif(exif).png().toBuffer({ resolveWithObject: true }))
+    : await sharp(image).withExif(exif).jpeg({ quality: 90, mozjpeg: true }).toBuffer({ resolveWithObject: true });
+  const thumb = await sharp(out.data).resize(480, 480, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 82, alphaQuality: 90 }).toBuffer();
+  const key = `u/${userId}/${id}/${kind}.${transparent ? 'png' : 'jpg'}`;
+  const thumbKey = `u/${userId}/${id}/thumb.webp`;
+  await ctx.storage.put(key, out.data, transparent ? 'image/png' : 'image/jpeg');
+  await ctx.storage.put(thumbKey, thumb, 'image/webp');
+  await trx
+    .insertInto('garment_images')
+    .values({
+      id,
+      user_id: userId,
+      garment_id: opts.garmentId ?? null,
+      kind,
+      storage_key: key,
+      thumb_storage_key: thumbKey,
+      mime: transparent ? 'image/png' : 'image/jpeg',
+      width: out.info.width,
+      height: out.info.height,
+      bytes: out.data.length,
+      sha256: createHash('sha256').update(out.data).digest('hex'),
+      phash: await dHash(out.data),
+      parent_image_id: opts.parentImageId ?? null,
+      generated_by: opts.model,
     })
     .execute();
   return id;

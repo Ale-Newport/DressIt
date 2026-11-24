@@ -7,6 +7,8 @@ import type { VisionClient } from './modules/vision/client.ts';
 import type { WeatherService } from './modules/weather/service.ts';
 import type { JobQueue } from './jobs/queue.ts';
 import type { CatalogProviders } from './modules/catalog/providers.ts';
+import type { ImageGenerator } from './modules/imagegen/generator.ts';
+import type { TryonService } from './modules/imagegen/tryon.ts';
 
 /** Everything a module needs; built once in app.ts and passed explicitly (easy to fake in tests). */
 export interface AppContext {
@@ -19,4 +21,7 @@ export interface AppContext {
   weather: WeatherService;
   queue: JobQueue;
   catalog: CatalogProviders;
+  imagegen: ImageGenerator;
+  /** null when TRYON_SERVICE_URL is not set. */
+  tryon: TryonService | null;
 }

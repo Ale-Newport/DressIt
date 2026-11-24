@@ -27,7 +27,13 @@ from ..vocabulary import Vocabulary, load_vocabulary
 
 CALIBRATION_PATH = Path(__file__).resolve().parent.parent / "calibration.json"
 DEFAULT_SCALES: dict[str, float] = {
-    "garment": 50.0, "pattern": 50.0, "material": 50.0, "style": 50.0, "warmth": 50.0, "fit": 50.0, "scene": 50.0,
+    "garment": 50.0,
+    "pattern": 50.0,
+    "material": 50.0,
+    "style": 50.0,
+    "warmth": 50.0,
+    "fit": 50.0,
+    "scene": 50.0,
 }
 FIT_CATEGORIES = frozenset({"top", "bottom", "one_piece", "outerwear"})
 # Definitional material implications (only used when the subcategory itself is confident).
@@ -71,11 +77,15 @@ class Head:
         return p / p.sum(axis=1, keepdims=True)
 
 
-def _texts(class_prompts: dict[str, tuple[str, ...]], templates: tuple[str, ...]) -> dict[str, list[str]]:
+def _texts(
+    class_prompts: dict[str, tuple[str, ...]], templates: tuple[str, ...]
+) -> dict[str, list[str]]:
     return {cid: P.ensemble(names, templates) for cid, names in class_prompts.items()}
 
 
-def _build_head(backend: Any, name: str, class_texts: dict[str, list[str]], scale: float) -> Head:
+def _build_head(
+    backend: Any, name: str, class_texts: dict[str, list[str]], scale: float
+) -> Head:
     ids = list(class_texts)
     texts: list[str] = []
     spans: list[tuple[int, int]] = []
@@ -92,27 +102,78 @@ def _build_head(backend: Any, name: str, class_texts: dict[str, list[str]], scal
 class ZeroShotHeads:
     """All heads for one backend; text prototypes are computed once and cached."""
 
-    def __init__(self, backend: Any, settings: Settings, vocab: Vocabulary | None = None) -> None:
+    def __init__(
+        self, backend: Any, settings: Settings, vocab: Vocabulary | None = None
+    ) -> None:
         self.vocab = vocab or load_vocabulary()
         scales = load_scales()
-        override = settings.logit_scale if os.environ.get("VISION_LOGIT_SCALE") else None
+        override = (
+            settings.logit_scale if os.environ.get("VISION_LOGIT_SCALE") else None
+        )
 
         def sc(name: str) -> float:
-            return float(override) if override is not None else scales.get(name, DEFAULT_SCALES[name])
+            return (
+                float(override)
+                if override is not None
+                else scales.get(name, DEFAULT_SCALES[name])
+            )
 
-        garment = _texts({s.id: P.SUBCATEGORY_PROMPTS[s.id] for s in self.vocab.subcategories}, P.GARMENT_TEMPLATES)
-        for rid, texts in P.NOT_GARMENT_PROMPTS.items():  # reject classes: no garment templates
+        garment = _texts(
+            {s.id: P.SUBCATEGORY_PROMPTS[s.id] for s in self.vocab.subcategories},
+            P.GARMENT_TEMPLATES,
+        )
+        for (
+            rid,
+            texts,
+        ) in P.NOT_GARMENT_PROMPTS.items():  # reject classes: no garment templates
             garment[rid] = list(texts)
         self.garment = _build_head(backend, "garment", garment, sc("garment"))
-        self.pattern = _build_head(backend, "pattern", _texts({p.id: P.PATTERN_PROMPTS[p.id] for p in self.vocab.patterns}, P.PATTERN_TEMPLATES), sc("pattern"))
-        self.material = _build_head(backend, "material", _texts({m.id: P.MATERIAL_PROMPTS[m.id] for m in self.vocab.materials}, P.MATERIAL_TEMPLATES), sc("material"))
-        self.style = _build_head(backend, "style", _texts({s: P.STYLE_PROMPTS[s] for s in self.vocab.styles}, P.STYLE_TEMPLATES), sc("style"))
-        self.warmth = _build_head(backend, "warmth", _texts(P.WARMTH_PROMPTS, P.WARMTH_TEMPLATES), sc("warmth"))
-        self.fit = _build_head(backend, "fit", _texts({f: P.FIT_PROMPTS[f] for f in self.vocab.fits}, P.FIT_TEMPLATES), sc("fit"))
-        self.scene = _build_head(backend, "scene", _texts(P.SCENE_PROMPTS, P.SCENE_TEMPLATES), sc("scene"))
+        self.pattern = _build_head(
+            backend,
+            "pattern",
+            _texts(
+                {p.id: P.PATTERN_PROMPTS[p.id] for p in self.vocab.patterns},
+                P.PATTERN_TEMPLATES,
+            ),
+            sc("pattern"),
+        )
+        self.material = _build_head(
+            backend,
+            "material",
+            _texts(
+                {m.id: P.MATERIAL_PROMPTS[m.id] for m in self.vocab.materials},
+                P.MATERIAL_TEMPLATES,
+            ),
+            sc("material"),
+        )
+        self.style = _build_head(
+            backend,
+            "style",
+            _texts(
+                {s: P.STYLE_PROMPTS[s] for s in self.vocab.styles}, P.STYLE_TEMPLATES
+            ),
+            sc("style"),
+        )
+        self.warmth = _build_head(
+            backend,
+            "warmth",
+            _texts(P.WARMTH_PROMPTS, P.WARMTH_TEMPLATES),
+            sc("warmth"),
+        )
+        self.fit = _build_head(
+            backend,
+            "fit",
+            _texts({f: P.FIT_PROMPTS[f] for f in self.vocab.fits}, P.FIT_TEMPLATES),
+            sc("fit"),
+        )
+        self.scene = _build_head(
+            backend, "scene", _texts(P.SCENE_PROMPTS, P.SCENE_TEMPLATES), sc("scene")
+        )
         # Support verification (single mode): the garment classes (subcategories + reject
         # classes) compete with garment parts and display supports in one softmax.
-        extra = _texts({**P.GARMENT_PART_PROMPTS, **P.SUPPORT_PROMPTS}, P.SUPPORT_TEMPLATES)
+        extra = _texts(
+            {**P.GARMENT_PART_PROMPTS, **P.SUPPORT_PROMPTS}, P.SUPPORT_TEMPLATES
+        )
         extra_head = _build_head(backend, "support_extra", extra, sc("garment"))
         self.support = Head(
             name="support",
@@ -120,10 +181,23 @@ class ZeroShotHeads:
             prototypes=np.vstack([self.garment.prototypes, extra_head.prototypes]),
             scale=sc("garment"),
         )
-        self.support_idx = np.array([i for i, c in enumerate(self.support.ids) if c.startswith("__support__")], dtype=int)
-        self.form_idx = np.array([self.support.ids.index(c) for c in ("__support__mannequin", "__support__form")], dtype=int)
+        self.support_idx = np.array(
+            [i for i, c in enumerate(self.support.ids) if c.startswith("__support__")],
+            dtype=int,
+        )
+        self.form_idx = np.array(
+            [
+                self.support.ids.index(c)
+                for c in ("__support__mannequin", "__support__form")
+            ],
+            dtype=int,
+        )
         self.style_prior = np.array(
-            [[s.styles.get(st, 0.0) for st in self.vocab.styles] for s in self.vocab.subcategories], dtype=np.float64
+            [
+                [s.styles.get(st, 0.0) for st in self.vocab.styles]
+                for s in self.vocab.subcategories
+            ],
+            dtype=np.float64,
         )
 
 
@@ -149,13 +223,17 @@ def headwear_probability(heads: ZeroShotHeads, embedding: np.ndarray) -> float:
     return float(sum(p[i] for i, c in enumerate(heads.garment.ids) if c in HEADWEAR))
 
 
-def support_probability(heads: ZeroShotHeads, embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def support_probability(
+    heads: ZeroShotHeads, embeddings: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """Per region embedding: P(display support: hanger, mannequin/form, clothesline, peg/hook)
     and whether the single most likely class is a mannequin or head form."""
     if len(embeddings) == 0:
         return np.zeros(0, np.float32), np.zeros(0, bool)
     p = heads.support.probs(embeddings)
-    return p[:, heads.support_idx].sum(axis=1).astype(np.float32), np.isin(p.argmax(axis=1), heads.form_idx)
+    return p[:, heads.support_idx].sum(axis=1).astype(np.float32), np.isin(
+        p.argmax(axis=1), heads.form_idx
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -163,17 +241,28 @@ def support_probability(heads: ZeroShotHeads, embeddings: np.ndarray) -> tuple[n
 # ---------------------------------------------------------------------------
 
 
-def _field(value: Any, confidence: float, alternatives: list[tuple[Any, float]] | None = None) -> dict[str, Any]:
+def _field(
+    value: Any, confidence: float, alternatives: list[tuple[Any, float]] | None = None
+) -> dict[str, Any]:
     return {
         "value": value,
         "confidence": round(float(confidence), 4),
-        "alternatives": [{"value": v, "confidence": round(float(c), 4)} for v, c in (alternatives or [])],
+        "alternatives": [
+            {"value": v, "confidence": round(float(c), 4)}
+            for v, c in (alternatives or [])
+        ],
     }
 
 
-def _alternatives(ids: list[str], probs: np.ndarray, exclude: str | None) -> list[tuple[str, float]]:
+def _alternatives(
+    ids: list[str], probs: np.ndarray, exclude: str | None
+) -> list[tuple[str, float]]:
     order = np.argsort(-probs)
-    out = [(ids[i], float(probs[i])) for i in order if ids[i] != exclude and probs[i] >= ALT_MIN]
+    out = [
+        (ids[i], float(probs[i]))
+        for i in order
+        if ids[i] != exclude and probs[i] >= ALT_MIN
+    ]
     return out[:ALT_COUNT]
 
 
@@ -182,12 +271,16 @@ class GarmentDecision:
     category: dict[str, Any] | None
     subcategory: dict[str, Any] | None
     not_garment: float
-    sub_probs: np.ndarray  # garment-conditional distribution over subcategories (sums to 1)
+    sub_probs: (
+        np.ndarray
+    )  # garment-conditional distribution over subcategories (sums to 1)
     category_id: str | None
     subcategory_id: str | None
 
 
-def decide_garment(p: np.ndarray, sub_ids: list[str], sub_categories: list[str], th: Thresholds) -> GarmentDecision:
+def decide_garment(
+    p: np.ndarray, sub_ids: list[str], sub_categories: list[str], th: Thresholds
+) -> GarmentDecision:
     """``p`` is the distribution over ``sub_ids`` followed by the reject classes (any number)."""
     p = np.asarray(p, dtype=np.float64)
     n = len(sub_ids)
@@ -199,7 +292,11 @@ def decide_garment(p: np.ndarray, sub_ids: list[str], sub_categories: list[str],
     best_c = int(np.argmax(p_cat))
     cat_id, cat_conf = cats[best_c], float(p_cat[best_c])
     cat_alts = _alternatives(cats, p_cat, cat_id)
-    category = _field(cat_id, cat_conf, cat_alts) if cat_conf >= th.category and p_not < th.not_garment else None
+    category = (
+        _field(cat_id, cat_conf, cat_alts)
+        if cat_conf >= th.category and p_not < th.not_garment
+        else None
+    )
     subcategory = None
     sub_id = None
     if category is not None:
@@ -208,13 +305,19 @@ def decide_garment(p: np.ndarray, sub_ids: list[str], sub_categories: list[str],
         sub_conf = float(p_sub[j])
         if sub_conf >= th.subcategory:
             sub_id = sub_ids[j]
-            subcategory = _field(sub_id, sub_conf, _alternatives(sub_ids, p_sub, sub_id))
+            subcategory = _field(
+                sub_id, sub_conf, _alternatives(sub_ids, p_sub, sub_id)
+            )
     total = p_sub.sum()
     cond = p_sub / total if total > 0 else np.full_like(p_sub, 1 / len(p_sub))
-    return GarmentDecision(category, subcategory, p_not, cond, cat_id if category else None, sub_id)
+    return GarmentDecision(
+        category, subcategory, p_not, cond, cat_id if category else None, sub_id
+    )
 
 
-def decide_single(ids: list[str], p: np.ndarray, threshold: float) -> dict[str, Any] | None:
+def decide_single(
+    ids: list[str], p: np.ndarray, threshold: float
+) -> dict[str, Any] | None:
     i = int(np.argmax(p))
     if float(p[i]) < threshold:
         return None
@@ -230,7 +333,9 @@ def decide_materials(
             chosen[mid] = float(p[i])
     if garment.subcategory is not None:
         for mid in SUBCATEGORY_MATERIALS.get(garment.subcategory["value"], ()):
-            chosen[mid] = max(chosen.get(mid, 0.0), float(garment.subcategory["confidence"]))
+            chosen[mid] = max(
+                chosen.get(mid, 0.0), float(garment.subcategory["confidence"])
+            )
     if not chosen:
         return None
     values = sorted(chosen, key=chosen.get, reverse=True)
@@ -238,7 +343,11 @@ def decide_materials(
 
 
 def decide_styles(
-    style_ids: list[str], p_zero_shot: np.ndarray, style_prior: np.ndarray, garment: GarmentDecision, threshold: float
+    style_ids: list[str],
+    p_zero_shot: np.ndarray,
+    style_prior: np.ndarray,
+    garment: GarmentDecision,
+    threshold: float,
 ) -> dict[str, Any] | None:
     """Expected vocabulary style affinity under P(sub | garment), blended with zero-shot evidence."""
     if garment.category is None:
@@ -249,10 +358,19 @@ def decide_styles(
     order = [i for i in np.argsort(-score) if score[i] >= threshold][:MAX_STYLES]
     if not order:
         return None
-    return {"value": [style_ids[i] for i in order], "confidence": round(float(min(score[i] for i in order)), 4)}
+    return {
+        "value": [style_ids[i] for i in order],
+        "confidence": round(float(min(score[i] for i in order)), 4),
+    }
 
 
-def decide_seasons(warmth_ids: list[str], p_warmth: np.ndarray, seasons: tuple[str, ...], threshold: float, garment: GarmentDecision) -> dict[str, Any] | None:
+def decide_seasons(
+    warmth_ids: list[str],
+    p_warmth: np.ndarray,
+    seasons: tuple[str, ...],
+    threshold: float,
+    garment: GarmentDecision,
+) -> dict[str, Any] | None:
     if garment.category is None:
         return None
     score = {s: 0.0 for s in seasons}
@@ -266,11 +384,20 @@ def decide_seasons(warmth_ids: list[str], p_warmth: np.ndarray, seasons: tuple[s
 
 
 def decide_fit(
-    fit_ids: list[str], p_fit: np.ndarray, threshold: float, garment: GarmentDecision, *, worn: bool = True
+    fit_ids: list[str],
+    p_fit: np.ndarray,
+    threshold: float,
+    garment: GarmentDecision,
+    *,
+    worn: bool = True,
 ) -> dict[str, Any] | None:
     """Fit is only judged on a garment that is being worn: flat or hanging, size relative to a
     body is unknowable, so we abstain."""
-    if not worn or garment.category is None or garment.category["value"] not in FIT_CATEGORIES:
+    if (
+        not worn
+        or garment.category is None
+        or garment.category["value"] not in FIT_CATEGORIES
+    ):
         return None
     return decide_single(fit_ids, p_fit, threshold)
 
@@ -293,15 +420,23 @@ def classify_embeddings(
     out = []
     for i in range(embeddings.shape[0]):
         g = decide_garment(pg[i], sub_ids, sub_cats, th)
-        pattern = decide_single(heads.pattern.ids, pp[i], th.pattern) if g.category else None
+        pattern = (
+            decide_single(heads.pattern.ids, pp[i], th.pattern) if g.category else None
+        )
         out.append(
             {
                 "category": g.category,
                 "subcategory": g.subcategory,
                 "pattern": pattern,
-                "materials": decide_materials(heads.material.ids, pm[i], th.material, g) if g.category else None,
-                "styles": decide_styles(heads.style.ids, ps[i], heads.style_prior, g, th.style),
-                "seasons": decide_seasons(heads.warmth.ids, pw[i], vocab.seasons, th.season, g),
+                "materials": decide_materials(heads.material.ids, pm[i], th.material, g)
+                if g.category
+                else None,
+                "styles": decide_styles(
+                    heads.style.ids, ps[i], heads.style_prior, g, th.style
+                ),
+                "seasons": decide_seasons(
+                    heads.warmth.ids, pw[i], vocab.seasons, th.season, g
+                ),
                 "fit": decide_fit(heads.fit.ids, pf[i], th.fit, g, worn=worn),
                 "_not_garment": g.not_garment,
             }

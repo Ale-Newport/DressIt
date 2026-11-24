@@ -38,10 +38,14 @@ PROPOSAL_QUERIES: tuple[str, ...] = DETECTION_QUERIES + PROP_QUERIES
 @dataclass(eq=False)
 class Proposal:
     det: Detection
-    mask: np.ndarray  # SAM mask (bool) limited to the slightly expanded box, region coords
+    mask: (
+        np.ndarray
+    )  # SAM mask (bool) limited to the slightly expanded box, region coords
 
 
-def rank_proposals(dets: list[Detection], width: int, height: int, max_n: int) -> list[Detection]:
+def rank_proposals(
+    dets: list[Detection], width: int, height: int, max_n: int
+) -> list[Detection]:
     """Boxes worth segmenting: by score, without near-duplicates or near-full-frame boxes."""
     frame = (0.0, 0.0, float(width), float(height))
     out: list[Detection] = []
@@ -56,7 +60,9 @@ def rank_proposals(dets: list[Detection], width: int, height: int, max_n: int) -
     return out
 
 
-def propose_regions(backend: VisionBackend, settings: Settings, region: Image.Image) -> list[Proposal]:
+def propose_regions(
+    backend: VisionBackend, settings: Settings, region: Image.Image
+) -> list[Proposal]:
     """Detector boxes for garments and supports, segmented by SAM. Runs in parallel with
     background removal (it does not need the foreground). The region is padded (bottom/right)
     to a square so the detector always sees the same input shape (no per-shape recompilation
@@ -66,7 +72,12 @@ def propose_regions(backend: VisionBackend, settings: Settings, region: Image.Im
     square = Image.new("RGB", (side, side), (255, 255, 255))
     square.paste(region.convert("RGB"), (0, 0))
     dets: list[Detection] = []
-    for d in backend.detect(square, PROPOSAL_QUERIES, PROPOSAL_THRESHOLD, short_side=settings.proposal_short_side):
+    for d in backend.detect(
+        square,
+        PROPOSAL_QUERIES,
+        PROPOSAL_THRESHOLD,
+        short_side=settings.proposal_short_side,
+    ):
         x0, y0, x1, y1 = d.box[0], d.box[1], min(d.box[2], w), min(d.box[3], h)
         if x1 - x0 >= 2 and y1 - y0 >= 2:
             dets.append(Detection(box=(x0, y0, x1, y1), score=d.score, label=d.label))
@@ -84,7 +95,13 @@ def propose_regions(backend: VisionBackend, settings: Settings, region: Image.Im
 
 
 def promote_head_forms(
-    fg: np.ndarray, parts: list[np.ndarray], p_support: np.ndarray, is_form: np.ndarray, *, min_prob: float, to: float
+    fg: np.ndarray,
+    parts: list[np.ndarray],
+    p_support: np.ndarray,
+    is_form: np.ndarray,
+    *,
+    min_prob: float,
+    to: float,
 ) -> np.ndarray:
     """Hat on a head form: a region whose most likely class is a mannequin/head form, with
     P(support) ≥ ``min_prob``, that reaches the bottom of the object and starts clearly
@@ -99,7 +116,11 @@ def promote_head_forms(
         if not is_form[i] or p_support[i] < min_prob:
             continue
         rows = np.nonzero(part.any(axis=1))[0]
-        if rows.size and rows[-1] >= bottom - 0.03 * height and rows[0] >= top + 0.15 * height:
+        if (
+            rows.size
+            and rows[-1] >= bottom - 0.03 * height
+            and rows[0] >= top + 0.15 * height
+        ):
             out[i] = max(out[i], to)
     return out
 
@@ -132,7 +153,11 @@ def remove_supports(
     the object that the model takes for a mannequin/head form needs less evidence
     (``support_min_prob_head_form``): a plain head form under a cap looks like a hat to it.
     """
-    info: dict[str, Any] = {"proposals": len(proposals), "regions": 0, "removed_frac": 0.0}
+    info: dict[str, Any] = {
+        "proposals": len(proposals),
+        "regions": 0,
+        "removed_frac": 0.0,
+    }
     fg = prob >= 0.5
     total = int(fg.sum())
     if not proposals or total == 0:
@@ -150,7 +175,9 @@ def remove_supports(
         return prob, info
     rgb = np.asarray(region.convert("RGB"))
     # Regions too big to be removed are not embedded: they only count as garment core.
-    small = [i for i, p in enumerate(parts) if p.sum() <= settings.support_max_area * total]
+    small = [
+        i for i, p in enumerate(parts) if p.sum() <= settings.support_max_area * total
+    ]
     p_support = np.zeros(len(parts), np.float32)
     if small:
         emb = backend.embed_images([region_view(rgb, parts[i]) for i in small])
@@ -160,25 +187,37 @@ def remove_supports(
             is_form = np.zeros(len(parts), bool)
             is_form[small] = form_small
             p_support = promote_head_forms(
-                fg, parts, p_support, is_form, min_prob=settings.support_min_prob_head_form, to=settings.support_min_prob
+                fg,
+                parts,
+                p_support,
+                is_form,
+                min_prob=settings.support_min_prob_head_form,
+                to=settings.support_min_prob,
             )
     remove = support_removal(
-        fg, parts, p_support, min_prob=settings.support_min_prob, max_area=settings.support_max_area
+        fg,
+        parts,
+        p_support,
+        min_prob=settings.support_min_prob,
+        max_area=settings.support_max_area,
     )
     info["p_support"] = [round(float(p), 3) for p in p_support]
     if not remove.any():
         return prob, info
     # One more pixel around the support: its anti-aliased rim is not garment either.
-    remove = ndimage.binary_dilation(remove, iterations=1) & ~_core(parts, p_support, remove)
+    remove = ndimage.binary_dilation(remove, iterations=1) & ~_core(
+        parts, p_support, remove
+    )
     info["removed_frac"] = round(float(np.logical_and(remove, fg).sum()) / total, 4)
     return np.where(remove, 0.0, prob).astype(np.float32), info
 
 
-def _core(parts: list[np.ndarray], p_support: np.ndarray, remove: np.ndarray) -> np.ndarray:
+def _core(
+    parts: list[np.ndarray], p_support: np.ndarray, remove: np.ndarray
+) -> np.ndarray:
     """Garment regions not touched by the removal (the dilation must not eat into them)."""
     core = np.zeros(remove.shape, bool)
     for p, q in zip(parts, p_support):
         if q < 0.3 and not np.logical_and(p, remove).any():
             core |= p
     return core
-

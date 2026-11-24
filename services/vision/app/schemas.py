@@ -36,7 +36,9 @@ class QualityOut(BaseModel):
 
 
 class ItemOut(BaseModel):
-    bbox: list[float] = Field(description="[x0, y0, x1, y1] normalised 0–1 in the EXIF-corrected image")
+    bbox: list[float] = Field(
+        description="[x0, y0, x1, y1] normalised 0–1 in the EXIF-corrected image"
+    )
     cutout_png_base64: str
     mask_area_ratio: float
     detection_score: float | None = None
@@ -51,6 +53,7 @@ class ItemOut(BaseModel):
     embedding: list[float]
     embedding_model: str
     quality: QualityOut
+    upright_rotation: float = 0.0
 
 
 class ImageInfo(BaseModel):
@@ -88,7 +91,9 @@ class EmbedTextResponse(BaseModel):
     embeddings: list[list[float]]
     model: str
     dim: int
-    translated: list[str] = Field(description="English text actually embedded (Spanish queries are rewritten)")
+    translated: list[str] = Field(
+        description="English text actually embedded (Spanish queries are rewritten)"
+    )
 
 
 class OcrLineOut(BaseModel):

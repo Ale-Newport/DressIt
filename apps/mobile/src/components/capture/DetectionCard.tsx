@@ -69,9 +69,11 @@ export interface DetectionCardProps {
   onEdit: () => void;
   accepting?: boolean;
   rejecting?: boolean;
+  /** When set, offers "Corregir recorte" (manual points on the photo). */
+  jobId?: string;
 }
 
-export function DetectionCard({ detection: d, index, overrides, onOverride, onAccept, onReject, onEdit, accepting, rejecting }: DetectionCardProps) {
+export function DetectionCard({ detection: d, index, overrides, onOverride, onAccept, onReject, onEdit, accepting, rejecting, jobId }: DetectionCardProps) {
   const { t } = useTranslation('capture');
   const { colors } = useTheme();
   const router = useRouter();
@@ -94,6 +96,16 @@ export function DetectionCard({ detection: d, index, overrides, onOverride, onAc
         <View style={{ flex: 1, gap: space.xs }}>
           <Text variant="subheading">{title}</Text>
           {edited ? <Badge label={t('review.edited')} tone="accent" icon="edit-2" /> : null}
+          {jobId && d.state === 'pending' ? (
+            <Button
+              label="Corregir recorte"
+              size="sm"
+              variant="ghost"
+              icon="scissors"
+              onPress={() => router.push({ pathname: '/garment/recut', params: { jobId, detectionId: d.id } })}
+              testID={`detection-${d.id}-recut`}
+            />
+          ) : null}
           {families.length ? (
             <View style={styles.swatches} accessible accessibilityLabel={`${t('review.fields.colors')}: ${families.join(', ')}`}>
               {families.map((f) => (

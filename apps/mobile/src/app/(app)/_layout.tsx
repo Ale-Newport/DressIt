@@ -31,6 +31,7 @@ export default function AppLayout() {
       {/* Wardrobe */}
       <Stack.Screen name="garment/[id]" options={{ title: '' }} />
       <Stack.Screen name="garment/new" options={{ title: 'Añadir prenda', presentation: 'modal' }} />
+      <Stack.Screen name="garment/recut" options={{ title: 'Corregir recorte' }} />
       <Stack.Screen name="wardrobe/stats" options={{ title: 'Estadísticas' }} />
       <Stack.Screen name="wardrobe/spaces" options={{ title: 'Espacios' }} />
       {/* Capture & imports */}
@@ -65,6 +66,7 @@ export default function AppLayout() {
       <Stack.Screen name="profile/preferences" options={{ title: 'Estilo y preferencias' }} />
       <Stack.Screen name="profile/style-profile" options={{ title: 'Tu perfil de estilo' }} />
       <Stack.Screen name="profile/consents" options={{ title: 'Permisos y consentimientos' }} />
+      <Stack.Screen name="profile/avatar" options={{ title: 'Tu avatar' }} />
       <Stack.Screen name="profile/privacy" options={{ title: 'Privacidad y datos' }} />
       <Stack.Screen name="profile/location" options={{ title: 'Tu ciudad', presentation: 'modal' }} />
       <Stack.Screen name="profile/calendar" options={{ title: 'Calendario' }} />

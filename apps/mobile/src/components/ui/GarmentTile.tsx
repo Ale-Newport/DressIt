@@ -62,7 +62,7 @@ export function GarmentTile({ garment, onPress, onLongPress, selected, selection
         ]}
       >
         {img ? (
-          <CutoutImage image={img} inset={0.1} recyclingKey={garment.id} testID={`${testID ?? `garment-tile-${garment.id}`}-image`} />
+          <CutoutImage image={img} inset={0.1} compactLabel recyclingKey={garment.id} testID={`${testID ?? `garment-tile-${garment.id}`}-image`} />
         ) : (
           <GarmentSilhouette
             category={garment.category}

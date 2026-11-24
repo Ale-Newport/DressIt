@@ -63,6 +63,8 @@ export default function PerfilScreen() {
         <Divider inset={48} />
         <ListRow icon="activity" title={t('rows.styleProfile')} subtitle={t('rows.styleProfileSub')} onPress={() => router.push('/profile/style-profile')} />
         <Divider inset={48} />
+        <ListRow icon="user" title="Tu avatar" subtitle="Tus fotos para verte con tus conjuntos" onPress={() => router.push('/profile/avatar')} testID="perfil-avatar" />
+        <Divider inset={48} />
         <ListRow icon="map-pin" title={t('rows.city')} value={me.data?.location?.name ?? t('rows.cityEmpty')} onPress={() => router.push('/profile/location')} testID="perfil-city" />
         <Divider inset={48} />
         <ListRow icon="calendar" title={t('rows.calendar')} subtitle={t('rows.calendarSub')} onPress={() => router.push('/profile/calendar')} />

@@ -30,7 +30,11 @@ class EasyOcrEngine:
             os.makedirs(model_dir, exist_ok=True)
         self.languages = list(languages)
         self.reader = easyocr.Reader(
-            self.languages, gpu=gpu, model_storage_directory=model_dir, verbose=False, download_enabled=True
+            self.languages,
+            gpu=gpu,
+            model_storage_directory=model_dir,
+            verbose=False,
+            download_enabled=True,
         )
         self.version = f"easyocr {easyocr.__version__} ({'+'.join(self.languages)})"
 
@@ -39,7 +43,9 @@ class EasyOcrEngine:
         w, h = img.size
         scale = min(1.0, OCR_MAX_SIDE / max(w, h))
         if scale < 1.0:
-            img = img.resize((round(w * scale), round(h * scale)), Image.Resampling.LANCZOS)
+            img = img.resize(
+                (round(w * scale), round(h * scale)), Image.Resampling.LANCZOS
+            )
         sw, sh = img.size
         results = self.reader.readtext(np.asarray(img), detail=1, paragraph=False)
         lines: list[OcrLine] = []
@@ -56,7 +62,9 @@ class EasyOcrEngine:
         return [ln for ln in lines if ln.text]
 
 
-_SPLIT_DECIMAL = re.compile(r"(\d)\s*([,.])\s+(\d{2})(?!\d)|(\d)\s+([,.])\s*(\d{2})(?!\d)")
+_SPLIT_DECIMAL = re.compile(
+    r"(\d)\s*([,.])\s+(\d{2})(?!\d)|(\d)\s+([,.])\s*(\d{2})(?!\d)"
+)
 
 
 def normalize_amounts(text: str) -> str:
@@ -89,7 +97,12 @@ def group_lines(lines: list[OcrLine]) -> tuple[str, list[OcrLine]]:
             OcrLine(
                 text=normalize_amounts(" ".join(r.text for r in row)),
                 confidence=float(np.mean([r.confidence for r in row])),
-                box=(min(r.box[0] for r in row), min(r.box[1] for r in row), max(r.box[2] for r in row), max(r.box[3] for r in row)),
+                box=(
+                    min(r.box[0] for r in row),
+                    min(r.box[1] for r in row),
+                    max(r.box[2] for r in row),
+                    max(r.box[3] for r in row),
+                ),
             )
         )
     return "\n".join(m.text for m in merged), merged

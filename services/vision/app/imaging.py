@@ -20,7 +20,9 @@ except Exception:  # pragma: no cover - optional dependency
     HEIF_AVAILABLE = False
 
 Image.MAX_IMAGE_PIXELS = 80_000_000  # decompression-bomb guard (~80 MP)
-ALLOWED_FORMATS = {"JPEG", "PNG", "MPO", "WEBP"} | ({"HEIF", "HEIC", "AVIF"} if HEIF_AVAILABLE else set())
+ALLOWED_FORMATS = {"JPEG", "PNG", "MPO", "WEBP"} | (
+    {"HEIF", "HEIC", "AVIF"} if HEIF_AVAILABLE else set()
+)
 
 
 class ImageDecodeError(ValueError):
@@ -35,7 +37,9 @@ class ImageDecodeError(ValueError):
 @dataclass
 class DecodedImage:
     rgb: Image.Image  # EXIF-transposed, RGB
-    alpha: np.ndarray | None  # uint8 alpha of the original if it carried real transparency
+    alpha: (
+        np.ndarray | None
+    )  # uint8 alpha of the original if it carried real transparency
     exif_transposed: bool
     format: str
 
@@ -46,9 +50,15 @@ def decode_image(data: bytes) -> DecodedImage:
         fmt = (img.format or "").upper()
         img.load()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise ImageDecodeError("unsupported_image", "No se ha podido leer la imagen (formatos: JPEG, PNG, HEIC).") from exc
+        raise ImageDecodeError(
+            "unsupported_image",
+            "No se ha podido leer la imagen (formatos: JPEG, PNG, HEIC).",
+        ) from exc
     if fmt not in ALLOWED_FORMATS:
-        raise ImageDecodeError("unsupported_image", f"Formato de imagen no admitido: {fmt or 'desconocido'}.")
+        raise ImageDecodeError(
+            "unsupported_image",
+            f"Formato de imagen no admitido: {fmt or 'desconocido'}.",
+        )
     orientation = 1
     try:
         orientation = int(img.getexif().get(0x0112, 1) or 1)
@@ -56,16 +66,22 @@ def decode_image(data: bytes) -> DecodedImage:
         orientation = 1
     img = ImageOps.exif_transpose(img) or img
     alpha: np.ndarray | None = None
-    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+    if img.mode in ("RGBA", "LA", "PA") or (
+        img.mode == "P" and "transparency" in img.info
+    ):
         rgba = img.convert("RGBA")
         a = np.asarray(rgba)[:, :, 3]
         # Only trust alpha that really separates something (an existing cutout).
         if 0.02 < float(np.mean(a < 128)) < 0.98:
             alpha = a.copy()
-        rgb = Image.alpha_composite(Image.new("RGBA", rgba.size, (255, 255, 255, 255)), rgba).convert("RGB")
+        rgb = Image.alpha_composite(
+            Image.new("RGBA", rgba.size, (255, 255, 255, 255)), rgba
+        ).convert("RGB")
     else:
         rgb = img.convert("RGB")
-    return DecodedImage(rgb=rgb, alpha=alpha, exif_transposed=orientation != 1, format=fmt)
+    return DecodedImage(
+        rgb=rgb, alpha=alpha, exif_transposed=orientation != 1, format=fmt
+    )
 
 
 def resize_max_side(img: Image.Image, max_side: int) -> tuple[Image.Image, float]:
@@ -74,10 +90,18 @@ def resize_max_side(img: Image.Image, max_side: int) -> tuple[Image.Image, float
     scale = min(1.0, max_side / max(w, h))
     if scale >= 1.0:
         return img, 1.0
-    return img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS), scale
+    return img.resize(
+        (max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS
+    ), scale
 
 
-def content_box(rgb: np.ndarray, *, delta_e: float = 6.0, margin: float = 0.03, min_trim: float = 0.04) -> tuple[int, int, int, int]:
+def content_box(
+    rgb: np.ndarray,
+    *,
+    delta_e: float = 6.0,
+    margin: float = 0.03,
+    min_trim: float = 0.04,
+) -> tuple[int, int, int, int]:
     """Gentle auto-crop: trims only uniform borders (scan margins, letterboxing, studio sweep).
 
     The border colour is the median of the outer 2 % frame; rows/columns whose
@@ -95,9 +119,14 @@ def content_box(rgb: np.ndarray, *, delta_e: float = 6.0, margin: float = 0.03, 
     lab = rgb_to_lab(sub.astype(np.float64))
     sh, sw = lab.shape[:2]
     fw = max(1, int(round(min(sh, sw) * 0.02)))
-    frame = np.concatenate([
-        lab[:fw].reshape(-1, 3), lab[-fw:].reshape(-1, 3), lab[:, :fw].reshape(-1, 3), lab[:, -fw:].reshape(-1, 3)
-    ])
+    frame = np.concatenate(
+        [
+            lab[:fw].reshape(-1, 3),
+            lab[-fw:].reshape(-1, 3),
+            lab[:, :fw].reshape(-1, 3),
+            lab[:, -fw:].reshape(-1, 3),
+        ]
+    )
     border = np.median(frame, axis=0)
     spread = np.percentile(np.linalg.norm(frame - border, axis=1), 90)
     if spread > delta_e:  # border is not uniform → nothing to trim
@@ -117,7 +146,9 @@ def content_box(rgb: np.ndarray, *, delta_e: float = 6.0, margin: float = 0.03, 
     return box
 
 
-def normalize_cutout_colors(rgb: np.ndarray, garment_mask: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
+def normalize_cutout_colors(
+    rgb: np.ndarray, garment_mask: np.ndarray
+) -> tuple[np.ndarray, dict[str, float]]:
     """Mild white-balance + exposure normalisation (documented in docs/vision.md).
 
     * White balance: von Kries gains in linear RGB estimated from *background*
@@ -150,11 +181,18 @@ def normalize_cutout_colors(rgb: np.ndarray, garment_mask: np.ndarray) -> tuple[
     if np.allclose(gains, 1.0) and exposure == 1.0:
         return rgb, info
     out = linear_to_srgb(lin * gains * exposure)
-    info.update(wb_r=float(gains[0]), wb_g=float(gains[1]), wb_b=float(gains[2]), exposure=exposure)
+    info.update(
+        wb_r=float(gains[0]),
+        wb_g=float(gains[1]),
+        wb_b=float(gains[2]),
+        exposure=exposure,
+    )
     return out.round().astype(np.uint8), info
 
 
-def pad_to_square(img: Image.Image, fill: tuple[int, int, int] = (255, 255, 255)) -> Image.Image:
+def pad_to_square(
+    img: Image.Image, fill: tuple[int, int, int] = (255, 255, 255)
+) -> Image.Image:
     w, h = img.size
     side = max(w, h)
     canvas = Image.new("RGB", (side, side), fill)

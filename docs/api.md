@@ -48,6 +48,16 @@ español apto para mostrar.
 | POST | `/v1/imports/:jobId/detections/:detectionId/accept` | `AcceptDetectionRequest` | `GarmentDetailDto` |
 | POST | `/v1/imports/:jobId/detections/:detectionId/reject` | – | `DetectionDto` |
 | POST | `/v1/imports/:jobId/accept-all` | – | `{ accepted: number, garmentIds: string[] }` |
+| GET / POST | `/v1/imports/:jobId/detections/:detectionId/recut` | POST: `{ points: [x, y, 1\|0][] }` (0–1; 1 = prenda; 1–20 puntos) | GET: `ImageRefDto` de la foto original · POST: `ImageRefDto` del nuevo recorte (pasa a ser el de la detección) |
+| GET / POST | `/v1/garments/:id/recut` | igual | Igual; el nuevo recorte pasa a ser la foto principal y los anteriores se conservan |
+| GET / POST | `/v1/garments/:id/official-photo` | POST: `{ productId }` | GET: `{ matches: [{ productId, title, retailer, imageUrl, similarity, url }], message }` (similitud ≥ 0,9) · POST: `ImageRefDto` (añadida a la galería con atribución) |
+| GET | `/v1/generation/status` | – | `GenerationServiceStatusDto` (incluye `tryon`) |
+| POST / GET | `/v1/garments/:id/studio` | – | `GenerationJobDto` (202) / `GenerationJobDto[]` |
+| PUT | `/v1/garments/:id/primary-image` | `{ imageId }` | `204` |
+| GET / PUT / DELETE | `/v1/me/avatar` | PUT: `AvatarProfileRequest` | `AvatarProfileDto` (con `bases`) / `204` |
+| POST | `/v1/me/avatar/bases` | `AvatarBaseRequest` (`view`, `background`) | `AvatarBaseResponse` (201 frontal lista; 202 vista generada, con su trabajo) |
+| POST / GET | `/v1/outfits/:id/avatar` | POST: `AvatarRenderRequest` (`baseId?`, `method?`) | `GenerationJobDto` (202, con `method` y `progress`) / `GenerationJobDto[]` |
+| GET | `/v1/generations/:id` | – | `GenerationJobDto` |
 | POST | `/v1/imports/link` | `LinkImportRequest` | `ImportedProductDto` |
 | POST | `/v1/imports/link/capture` | `PageCaptureRequest` | `ImportedProductDto` |
 | GET | `/v1/imports/link/:id` | – | `ImportedProductDto` |

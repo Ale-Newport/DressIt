@@ -8,7 +8,7 @@ import { deleteUserFiles } from '../images/service.ts';
 import { verifyUserPassword } from '../auth/service.ts';
 
 export const CONSENT_VERSION = '2026-11';
-const CONSENT_KINDS: ConsentKind[] = ['terms', 'privacy', 'photo_processing', 'location', 'calendar', 'email_import', 'ai_assistant_external', 'analytics', 'marketing'];
+const CONSENT_KINDS: ConsentKind[] = ['terms', 'privacy', 'photo_processing', 'location', 'calendar', 'email_import', 'ai_assistant_external', 'analytics', 'marketing', 'ai_image_generation', 'avatar'];
 
 export async function getPreferences(trx: Tx, userId: string): Promise<PreferencesDto> {
   let p = await trx.selectFrom('user_preferences').selectAll().where('user_id', '=', userId).executeTakeFirst();
@@ -103,7 +103,7 @@ export async function exportData(trx: Tx, userId: string): Promise<Record<string
     'user_preferences', 'style_profiles', 'consents', 'wardrobes', 'wardrobe_spaces', 'garments', 'garment_images', 'garment_attributes', 'garment_availability',
     'tags', 'garment_tags', 'import_sources', 'import_jobs', 'import_detections', 'imported_products', 'outfits', 'outfit_items', 'outfit_ratings',
     'outfit_usage_history', 'calendar_events', 'outfit_plans', 'trips', 'trip_items', 'wishlists', 'wishlist_items', 'purchases',
-    'recommendation_events', 'assistant_messages', 'audit_events',
+    'recommendation_events', 'assistant_messages', 'audit_events', 'avatar_profiles', 'generation_jobs',
   ] as const;
   const out: Record<string, unknown> = {
     exportedAt: new Date().toISOString(),

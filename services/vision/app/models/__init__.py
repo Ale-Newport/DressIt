@@ -37,4 +37,11 @@ def reset_backend() -> None:
         _backend = None
 
 
-__all__ = ["Detection", "OcrLine", "VisionBackend", "create_backend", "get_backend", "reset_backend"]
+__all__ = [
+    "Detection",
+    "OcrLine",
+    "VisionBackend",
+    "create_backend",
+    "get_backend",
+    "reset_backend",
+]
