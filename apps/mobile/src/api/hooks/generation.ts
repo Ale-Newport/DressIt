@@ -17,23 +17,6 @@ export function useGenerationStatus() {
   });
 }
 
-/** Studio photos generated for a garment, newest first. */
-export function useStudioJobs(garmentId: string) {
-  return useQuery({
-    queryKey: ['generation', 'studio', garmentId],
-    queryFn: () => api.get<GenerationJobDto[]>(`/v1/garments/${garmentId}/studio`),
-    refetchInterval: (q) => pollWhileActive(q.state.data),
-  });
-}
-
-export function useCreateStudio(garmentId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.post<GenerationJobDto>(`/v1/garments/${garmentId}/studio`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['generation', 'studio', garmentId] }),
-  });
-}
-
 export function useSetPrimaryImage(garmentId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -79,7 +62,7 @@ export function useCreateAvatarBase() {
 }
 
 // ---------------------------------------------------------------------------
-// Garment photos: manual cutout correction and official store photos
+// Garment photos: manual cutout correction
 // ---------------------------------------------------------------------------
 
 /** Where a cutout is corrected: a garment in the wardrobe or a detection still in review. */
@@ -100,33 +83,6 @@ export function useRecut(target: RecutTarget) {
       if ('garmentId' in target) invalidateWardrobe(qc, target.garmentId);
       else qc.invalidateQueries({ queryKey: qk.imports.job(target.jobId) });
     },
-  });
-}
-
-export interface OfficialPhotoMatch {
-  productId: string;
-  title: string;
-  retailer: string;
-  imageUrl: string;
-  similarity: number;
-  url: string | null;
-}
-
-/** Products from connected stores that are this very garment (similarity ≥ 0.9). */
-export function useOfficialPhotos(garmentId: string, enabled = true) {
-  return useQuery({
-    queryKey: ['garments', garmentId, 'official-photo'],
-    queryFn: () => api.get<{ matches: OfficialPhotoMatch[]; message: string }>(`/v1/garments/${garmentId}/official-photo`),
-    enabled,
-    staleTime: 5 * 60_000,
-  });
-}
-
-export function useAddOfficialPhoto(garmentId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (productId: string) => api.post<ImageRefDto>(`/v1/garments/${garmentId}/official-photo`, { productId }),
-    onSuccess: () => invalidateWardrobe(qc, garmentId),
   });
 }
 

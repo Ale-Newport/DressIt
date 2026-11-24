@@ -8,6 +8,7 @@
  *   GET  /history/:id   → { [id]: { status: { completed, status_str, messages }, outputs: { node: { images: [...] } } } }
  *   GET  /view?filename&subfolder&type=output → bytes
  *   GET  /system_stats  → health
+ *   GET  /queue · POST /queue {delete} · POST /interrupt → giving up on a prompt (only ours)
  *
  * ComfyUI is GPL-3.0; DressIt only talks to it over HTTP as a separate program.
  */
@@ -127,8 +128,22 @@ export class ComfyClient {
       }
       await new Promise((r) => setTimeout(r, pollMs));
     }
-    // Free the GPU for the next job.
-    await this.call('/interrupt', { method: 'POST' }).catch(() => undefined);
+    await this.cancel(queued.prompt_id);
     throw new ComfyError('La generación ha tardado demasiado.', true);
+  }
+
+  /**
+   * Gives up on a prompt: interrupts it only if it is the one executing (`/interrupt` stops whatever
+   * runs, possibly someone else's prompt), otherwise removes it from the queue so it does not run
+   * later for nothing.
+   */
+  async cancel(promptId: string): Promise<void> {
+    try {
+      const q = (await (await this.call('/queue')).json()) as { queue_running?: unknown[][]; queue_pending?: unknown[][] };
+      if (q.queue_running?.some((e) => e[1] === promptId)) await this.call('/interrupt', { method: 'POST' });
+      else await this.call('/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [promptId] }) });
+    } catch {
+      /* best effort */
+    }
   }
 }

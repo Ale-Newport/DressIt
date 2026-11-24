@@ -127,7 +127,11 @@ export default {
       marketing: { title: 'Comunicaciones', body: 'Novedades y ofertas por correo.' },
       ai_image_generation: {
         title: 'Imágenes generadas con IA',
-        body: 'Crear fotos de estudio de tus prendas y verte con tus conjuntos con un modelo de imagen en nuestros servidores. Las imágenes generadas siempre se marcan como tales.',
+        body: 'Crear fotos de catálogo de tus prendas (extendidas y bien colocadas, sobre fondo blanco) y verte con tus conjuntos con un modelo de imagen. Puede ejecutarse en nuestros servidores o en un proveedor externo (FASHN, fal.ai), que no guarda tus fotos ni entrena con ellas. Las imágenes generadas siempre se marcan como tales.',
+      },
+      visual_search_external: {
+        title: 'Buscar mis prendas en Internet',
+        body: 'Enviar la foto de una prenda (solo la prenda recortada y la foto) a buscadores de imágenes (Google Lens a través de SerpApi, Google Cloud Vision, Lykdat) para encontrar la foto oficial de la tienda. Si lo desactivas, solo se busca en los catálogos conectados y se olvidan las respuestas guardadas.',
       },
       avatar: {
         title: 'Tu avatar',

@@ -21,6 +21,7 @@ beforeEach(() => {
   tryonState.calls = [];
   tryonState.masks = [];
   tryonState.composites = [];
+  tryonState.noFeet = false;
   tryonState.recolor = null;
 });
 
@@ -62,73 +63,6 @@ async function countImages(userId: string, kinds: string[]): Promise<number> {
 }
 
 const solid = (hex: string) => sharp({ create: { width: 64, height: 80, channels: 3, background: hex } }).png().toBuffer();
-
-describe('studio photos of owned garments', () => {
-  it('needs its own consent and reports whether the generator is available', async () => {
-    const u = await registerUser(t);
-    const [g] = await digitise(u.auth, 'single');
-    expect((await t.app.inject({ method: 'GET', url: '/v1/generation/status', headers: u.auth })).json()).toMatchObject({ available: true, studio: true, models: { studio: 'fake-studio' } });
-    const r = await t.app.inject({ method: 'POST', url: `/v1/garments/${g!.id}/studio`, headers: u.auth });
-    expect(r.statusCode).toBe(400);
-    expect(r.json().error.message).toMatch(/Imágenes generadas con IA/);
-    imagegenState.available = false;
-    await consent(u.auth, 'ai_image_generation');
-    expect((await t.app.inject({ method: 'POST', url: `/v1/garments/${g!.id}/studio`, headers: u.auth })).statusCode).toBe(503);
-  });
-
-  it('keeps a faithful studio photo, labelled as AI-generated, and lets the user use it', async () => {
-    const u = await registerUser(t);
-    await consent(u.auth, 'ai_image_generation');
-    const [g] = await digitise(u.auth, 'single');
-    // The generator returns the garment in its own colour; the fake vision then sees the same garment.
-    imagegenState.output = await solid(g!.colors[0]!.hex);
-    await setEmbedding(g!.id, imagegenState.output);
-    const job = (await t.app.inject({ method: 'POST', url: `/v1/garments/${g!.id}/studio`, headers: u.auth })).json();
-    expect(job).toMatchObject({ kind: 'studio', garmentId: g!.id, model: 'fake-studio' });
-    expect(['queued', 'running']).toContain(job.status); // the in-process queue may already have started it
-    await t.queue.drain();
-    const done = (await t.app.inject({ method: 'GET', url: `/v1/generations/${job.id}`, headers: u.auth })).json();
-    expect(done.status).toBe('done');
-    expect(done.fidelity).toMatchObject({ passed: true, similarity: 1 });
-    expect(done.result).toMatchObject({ isCutout: true, generatedBy: 'fake-studio' });
-    // The garment's photo stays the real one until the user chooses the studio photo.
-    expect((await t.app.inject({ method: 'GET', url: `/v1/garments/${g!.id}`, headers: u.auth })).json().image.generatedBy).toBeUndefined();
-    expect((await t.app.inject({ method: 'PUT', url: `/v1/garments/${g!.id}/primary-image`, headers: u.auth, payload: { imageId: done.result.id } })).statusCode).toBe(204);
-    const after = (await t.app.inject({ method: 'GET', url: `/v1/garments/${g!.id}`, headers: u.auth })).json();
-    expect(after.image).toMatchObject({ id: done.result.id, generatedBy: 'fake-studio' });
-    expect(after.images.map((i: { id: string }) => i.id)).toContain(done.result.id);
-    // The served file is a real PNG.
-    const file = await t.app.inject({ method: 'GET', url: done.result.url.replace(/^https?:\/\/[^/]+/, '') });
-    expect(file.headers['content-type']).toBe('image/png');
-    // …and says in its own metadata that it was AI-generated (EU AI Act art. 50).
-    expect((await sharp(file.rawPayload).metadata()).exif?.toString('latin1')).toContain('AI-generated image (fake-studio)');
-  });
-
-  it('rejects a studio photo that changed the garment and stores nothing', async () => {
-    const u = await registerUser(t);
-    await consent(u.auth, 'ai_image_generation');
-    const [g] = await digitise(u.auth, 'single');
-    imagegenState.output = await solid('#d01818'); // a red garment instead of the navy one
-    const job = (await t.app.inject({ method: 'POST', url: `/v1/garments/${g!.id}/studio`, headers: u.auth })).json();
-    await t.queue.drain();
-    const done = (await t.app.inject({ method: 'GET', url: `/v1/generations/${job.id}`, headers: u.auth })).json();
-    expect(done.status).toBe('rejected');
-    expect(done.result).toBeNull();
-    expect(done.fidelity.passed).toBe(false);
-    expect(done.error).toMatch(/no se parece|color/);
-    expect(await countImages(u.id, ['studio'])).toBe(0);
-  });
-
-  it('marks a generator failure as failed with a Spanish message', async () => {
-    const u = await registerUser(t);
-    await consent(u.auth, 'ai_image_generation');
-    const [g] = await digitise(u.auth, 'single');
-    imagegenState.output = null;
-    const job = (await t.app.inject({ method: 'POST', url: `/v1/garments/${g!.id}/studio`, headers: u.auth })).json();
-    await t.queue.drain();
-    expect((await t.app.inject({ method: 'GET', url: `/v1/generations/${job.id}`, headers: u.auth })).json()).toMatchObject({ status: 'failed', error: 'fallo simulado' });
-  });
-});
 
 describe('avatar: the user wearing an outfit', () => {
   async function avatarReady(auth: Auth) {
@@ -305,6 +239,17 @@ describe('persistent avatar and sequential try-on', () => {
     expect(await render(u.auth, look2)).toMatchObject({ status: 'done' });
     expect(tryonState.calls).toEqual([]);
     expect(imagegenState.calls).toEqual([]);
+  });
+
+  it('does not try shoes on when the avatar photo does not show the feet, and says so', async () => {
+    const { u } = await setUp();
+    imagegenState.output = await testImage({ r: 1, g: 1, b: 1 }, 'png');
+    tryonState.noFeet = true;
+    const [top, bottom] = await digitise(u.auth, 'multi', { r: 30, g: 40, b: 70 });
+    const sneakers = await shoes(u.auth, { r: 20, g: 120, b: 60 });
+    const done = await render(u.auth, await outfit(u.auth, [['base', top!.id], ['bottom', bottom!.id], ['footwear', sneakers]]));
+    expect(done).toMatchObject({ status: 'done', fidelity: { passed: true, notes: ['Tu foto de avatar no muestra los pies, así que el calzado no se ha probado.'] } });
+    expect(imagegenState.calls).toEqual([]); // no shoes pass
   });
 
   it('rejects a try-on that changed a garment’s colour, and fails clearly when the service is down', async () => {

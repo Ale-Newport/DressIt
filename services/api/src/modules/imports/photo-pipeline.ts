@@ -11,6 +11,7 @@ import { businessEvents } from '../../lib/metrics.ts';
 import type { AttemptInfo, ImageAnalysisJob } from '../../jobs/queue.ts';
 import { hamming, loadImageBytes, storeCutout } from '../images/service.ts';
 import type { VisionItem } from '../vision/client.ts';
+import { createForDetection } from '../catalog-photo/service.ts';
 
 interface JobInput {
   imageIds: string[];
@@ -90,8 +91,13 @@ export async function processImageAnalysis(ctx: AppContext, job: ImageAnalysisJo
     for (const imageId of input.imageIds) {
       const { body, mime } = await withUser(ctx.db, job.userId, (trx) => loadImageBytes(ctx, trx, imageId));
       const analysis = await ctx.vision.analyze(body, mime, input.mode, input.mode === 'multi' ? 8 : 1);
-      await withUser(ctx.db, job.userId, async (trx) => {
-        // Idempotency: a retried job must not duplicate detections for the same image.
+      const imageCatalogJobs = await withUser(ctx.db, job.userId, async (trx) => {
+        const created: string[] = [];
+        // Idempotency: a retried job must not duplicate detections (nor their catalogue photos) for the same image.
+        await trx
+          .deleteFrom('catalog_photo_jobs')
+          .where('detection_id', 'in', (eb) => eb.selectFrom('import_detections').select('id').where('job_id', '=', job.importJobId).where('image_id', '=', imageId))
+          .execute();
         await trx.deleteFrom('import_detections').where('job_id', '=', job.importJobId).where('image_id', '=', imageId).execute();
         for (const item of analysis.items) {
           const cutoutId = item.cutout_png_base64 ? await storeCutout(ctx, trx, job.userId, imageId, Buffer.from(item.cutout_png_base64, 'base64')) : null;
@@ -110,7 +116,7 @@ export async function processImageAnalysis(ctx: AppContext, job: ImageAnalysisJo
           const duplicate = await findDuplicate(trx, imageId, item);
           const warnings = [...(item.quality?.warnings ?? [])];
           if (!item.subcategory) warnings.push('No hemos podido identificar el tipo de prenda con seguridad: indícalo tú.');
-          await trx
+          const inserted = await trx
             .insertInto('import_detections')
             .values({
               user_id: job.userId,
@@ -124,12 +130,18 @@ export async function processImageAnalysis(ctx: AppContext, job: ImageAnalysisJo
               duplicate: duplicate ? JSON.stringify(duplicate) : null,
               warnings,
             })
-            .execute();
+            .returning('id')
+            .executeTakeFirstOrThrow();
           detections++;
+          // Catalogue photo (official photo search, then AI packshot), prepared while the user reviews.
+          const catalogJob = await createForDetection(ctx, trx, job.userId, inserted.id);
+          if (catalogJob) created.push(catalogJob);
         }
         processed++;
         await trx.updateTable('import_jobs').set({ processed }).where('id', '=', job.importJobId).execute();
+        return created;
       });
+      for (const id of imageCatalogJobs) await ctx.queue.enqueueCatalogPhoto({ catalogPhotoId: id, userId: job.userId }); // after commit
     }
     await withUser(ctx.db, job.userId, (trx) =>
       trx

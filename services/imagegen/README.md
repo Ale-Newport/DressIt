@@ -1,6 +1,7 @@
 # Servidor de generación de imágenes (ComfyUI)
 
-Genera las **fotos de estudio** de las prendas y los **avatares** del usuario con su conjunto. La API
+Genera las **fotos de catálogo** de las prendas (packshot: prenda extendida y colocada, fondo blanco;
+ver [docs/foto-catalogo.md](../../docs/foto-catalogo.md)) y los **avatares** del usuario con su conjunto. La API
 de DressIt lo usa por HTTP como un programa aparte (`IMAGEGEN_COMFY_URL`); los workflows viven en
 [`services/api/src/modules/imagegen/workflows`](../api/src/modules/imagegen/workflows) y se generan
 con [`scripts/build_workflows.py`](scripts/build_workflows.py).
@@ -45,8 +46,7 @@ generación y la app oculta esas funciones.
 
 ```bash
 cd services/api
-node scripts/imagegen-try.ts studio <recorte.png> /tmp/estudio.png "jersey de punto, camel"
-node scripts/imagegen-try.ts studio <recorte.png> /tmp/estudio.png "jersey de punto, camel" studio-fast
+node scripts/imagegen-try.ts packshot <foto.jpg> /tmp/packshot.png cardigan camel
 ```
 
 ## Producción

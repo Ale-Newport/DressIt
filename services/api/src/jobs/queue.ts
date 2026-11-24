@@ -26,6 +26,15 @@ export type GenerationProcessor = (job: GenerationJob, attempt: AttemptInfo) => 
 const GENERATION_QUEUE = 'image-generation';
 const GENERATION_ATTEMPTS = 2;
 
+/** Catalogue photo of a garment: reverse image search + generative packshot (network/GPU-bound). */
+export interface CatalogPhotoJob {
+  catalogPhotoId: string;
+  userId: string;
+}
+export type CatalogPhotoProcessor = (job: CatalogPhotoJob, attempt: AttemptInfo) => Promise<void>;
+const CATALOG_QUEUE = 'catalog-photo';
+const CATALOG_ATTEMPTS = 2;
+
 const MAX_ATTEMPTS = 5;
 
 export interface JobQueue {
@@ -33,6 +42,8 @@ export interface JobQueue {
   startWorker(processor: JobProcessor): Promise<void>;
   enqueueGeneration(job: GenerationJob): Promise<void>;
   startGenerationWorker(processor: GenerationProcessor): Promise<void>;
+  enqueueCatalogPhoto(job: CatalogPhotoJob): Promise<void>;
+  startCatalogPhotoWorker(processor: CatalogPhotoProcessor, concurrency?: number): Promise<void>;
   close(): Promise<void>;
   readonly mode: 'bullmq' | 'inline';
 }
@@ -45,6 +56,8 @@ export class BullJobQueue implements JobQueue {
   private worker: Worker | null = null;
   private generationQueue: Queue | null = null;
   private generationWorker: Worker | null = null;
+  private catalogQueue: Queue | null = null;
+  private catalogWorker: Worker | null = null;
   private readonly connection: ConnectionOptions;
   constructor(redisUrl: string) {
     const u = new URL(redisUrl);
@@ -88,11 +101,30 @@ export class BullJobQueue implements JobQueue {
       { connection: this.connection, concurrency: 1, lockDuration: 10 * 60_000 },
     );
   }
+  async enqueueCatalogPhoto(job: CatalogPhotoJob) {
+    this.catalogQueue ??= new Queue(CATALOG_QUEUE, { connection: this.connection });
+    await this.catalogQueue.add('catalog-photo', job, {
+      jobId: `${job.catalogPhotoId}-${Date.now()}`,
+      attempts: CATALOG_ATTEMPTS,
+      backoff: { type: 'fixed', delay: 20_000 },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    });
+  }
+  async startCatalogPhotoWorker(processor: CatalogPhotoProcessor, concurrency = 2) {
+    this.catalogWorker = new Worker(
+      CATALOG_QUEUE,
+      async (j) => processor(j.data as CatalogPhotoJob, { attempt: j.attemptsMade + 1, isLastAttempt: j.attemptsMade + 1 >= (j.opts.attempts ?? CATALOG_ATTEMPTS) }),
+      { connection: this.connection, concurrency, lockDuration: 20 * 60_000 },
+    );
+  }
   async close() {
     await this.worker?.close();
     await this.generationWorker?.close();
+    await this.catalogWorker?.close();
     await this.queue.close();
     await this.generationQueue?.close();
+    await this.catalogQueue?.close();
   }
 }
 
@@ -101,8 +133,10 @@ export class InlineJobQueue implements JobQueue {
   readonly mode = 'inline' as const;
   private processor: JobProcessor | null = null;
   private generationProcessor: GenerationProcessor | null = null;
+  private catalogProcessor: CatalogPhotoProcessor | null = null;
   /** Generation runs one job at a time, like the real worker. */
   private generationChain: Promise<void> = Promise.resolve();
+  private catalogChain: Promise<void> = Promise.resolve();
   private readonly pending = new Set<Promise<void>>();
   private readonly retries: number;
   constructor(retries = 2) {
@@ -143,6 +177,24 @@ export class InlineJobQueue implements JobQueue {
   }
   async startGenerationWorker(processor: GenerationProcessor) {
     this.generationProcessor = processor;
+  }
+  async enqueueCatalogPhoto(job: CatalogPhotoJob) {
+    const run = async () => {
+      for (let attempt = 0; attempt < CATALOG_ATTEMPTS; attempt++) {
+        try {
+          if (!this.catalogProcessor) return;
+          await this.catalogProcessor(job, { attempt: attempt + 1, isLastAttempt: attempt + 1 >= CATALOG_ATTEMPTS });
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      }
+    };
+    const p = (this.catalogChain = this.catalogChain.then(run, run)).finally(() => this.pending.delete(p));
+    this.pending.add(p);
+  }
+  async startCatalogPhotoWorker(processor: CatalogPhotoProcessor) {
+    this.catalogProcessor = processor;
   }
   /** Test helper: wait for all in-flight jobs. */
   async drain() {

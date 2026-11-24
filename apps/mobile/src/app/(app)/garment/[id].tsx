@@ -42,7 +42,7 @@ import { CutoutImage } from '@/components/ui/CutoutImage';
 import { type FieldKey, GarmentFieldEditor } from '@/components/wardrobe/GarmentFields';
 import { OnDeviceDescription } from '@/components/wardrobe/OnDeviceDescription';
 import { GarmentPhotoTools } from '@/components/wardrobe/GarmentPhotoTools';
-import { StudioPhotoCard } from '@/components/wardrobe/StudioPhotoCard';
+import { CatalogPhotoCard } from '@/components/wardrobe/CatalogPhotoCard';
 import { today } from '@/lib/dates';
 import { capitalize, formatLongDate, formatMoney, formatShortDate } from '@/lib/format';
 import { options, statusLabel, subcategoryLabel } from '@/lib/vocab';
@@ -180,8 +180,8 @@ function GarmentDetail({ garment: g, refreshing, onRefresh }: { garment: Garment
         ) : null}
       </Card>
 
+      <CatalogPhotoCard garment={g} />
       <GarmentPhotoTools garment={g} />
-      <StudioPhotoCard garment={g} />
       <OnDeviceDescription garment={g} />
 
       {/* Attributes with provenance + inline correction */}

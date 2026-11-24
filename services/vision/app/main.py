@@ -28,6 +28,7 @@ from .imaging import ImageDecodeError, decode_image, encode_png_base64
 from .models import get_backend
 from .ocr import group_lines
 from .pipeline.analyze import analyze_image
+from .pipeline.catalog_check import check_catalog_photo
 from .pipeline.compare import compare_cutouts
 from .pipeline.masks import decontaminate_cutout
 from .pipeline.refine_points import segment_with_points
@@ -222,6 +223,42 @@ def compare(
             422, "invalid_image", "No se ha podido leer una de las imágenes."
         ) from exc
     return JSONResponse(compare_cutouts(ref, cand).to_dict())
+
+
+@app.post("/v1/catalog/check", responses=ERRORS)
+def catalog_check(
+    reference: UploadFile = File(...),
+    candidate: UploadFile = File(...),
+    kind: str = Form("generated"),
+    category: str | None = Form(None),
+    subcategory: str | None = Form(None),
+    ocr: bool = Form(False),
+) -> JSONResponse:
+    """Catalogue photo check: is ``candidate`` (an AI packshot or an official store photo) a
+    professional product photo, and is it the same garment as ``reference`` (the real cutout,
+    RGBA PNG)? Independent of how the garment is arranged."""
+    if kind not in {"generated", "official"}:
+        raise ApiError(422, "invalid_kind", "kind debe ser 'generated' u 'official'.")
+    try:
+        ref = Image.open(io.BytesIO(_read_upload(reference)))
+        ref.load()
+    except (OSError, ValueError) as exc:
+        raise ApiError(
+            422, "invalid_image", "No se ha podido leer la imagen de referencia."
+        ) from exc
+    data = _read_upload(candidate)
+    with _slots:
+        result = check_catalog_photo(
+            ref.convert("RGBA"),
+            data,
+            kind=kind,
+            category=category or None,
+            subcategory=subcategory or None,
+            backend=get_backend(),
+            settings=get_settings(),
+            ocr=ocr,
+        )
+    return JSONResponse(result.to_dict())
 
 
 @app.post("/v1/embed/image", response_model=EmbedResponse, responses=ERRORS)

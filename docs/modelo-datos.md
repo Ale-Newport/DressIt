@@ -71,10 +71,19 @@ erDiagram
   de 0,1° (~11 km).
 - **Precios**: historial append-only (`product_prices`) con fuente y fecha de observación; el producto
   guarda `last_verified_at` para calcular la frescura.
-- **Imágenes generadas**: `garment_images.kind` distingue `studio`, `avatar_render`, `avatar_base`
-  y `tryon_step`, y `generated_by` guarda el modelo (la app etiqueta «Generada con IA»). Un recorte
-  corregido a mano o una foto oficial se añaden como imágenes nuevas: nunca se sobrescribe ni se
-  borra la foto original del usuario.
+- **Imágenes generadas**: `garment_images.kind` distingue `studio` (packshot de la foto de
+  catálogo, recortado), `avatar_render`, `avatar_base` y `tryon_step`, y `generated_by` guarda el
+  modelo (la app etiqueta «Generada con IA»). Un recorte corregido a mano, una foto oficial
+  (`product_reference`) o un packshot se añaden como imágenes nuevas: nunca se sobrescribe ni se
+  borra la foto original del usuario. Una foto oficial encontrada en Internet se guarda **por
+  referencia** (`license = retailer_link_preview`, `source_url` = la imagen de la tienda,
+  `storage_key = remote:…`): no se copia.
+- **Foto de catálogo** (`catalog_photo_jobs`, migración 0005): un trabajo por detección o prenda con
+  la búsqueda (buscadores consultados, texto leído), los candidatos verificados (`candidates`, con
+  evidencias, dudas y permisos de uso), los intentos de generación con su control, la elección del
+  usuario y el coste. `visual_search_cache` guarda las respuestas de los buscadores por foto
+  (30 días) y `external_api_usage` las llamadas y el coste por usuario, proveedor y día (límites y
+  presupuesto mensual vía `external_api_month_cost()`, `security definer`).
 - **Probador por pasos**: `tryon_cache.key` = SHA-256 de (imagen base, motor y pasos, prendas ya
   puestas en orden con su recorte); cambiar una prenda solo invalida los pasos posteriores.
 - **Imágenes**: `license` por imagen (`user_owned`, `retailer_licensed`, `retailer_link_preview`),

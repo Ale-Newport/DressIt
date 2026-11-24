@@ -21,6 +21,9 @@ import type { VisionAnalysis, VisionClient } from '../../src/modules/vision/clie
 import { WeatherService } from '../../src/modules/weather/service.ts';
 import { ComfyError, type ImageGenerator } from '../../src/modules/imagegen/generator.ts';
 import type { ParsedRegions, TryonService } from '../../src/modules/imagegen/tryon.ts';
+import type { CatalogPhotoProviders } from '../../src/modules/catalog-photo/service.ts';
+import { GenerationError, type PackshotGenerator } from '../../src/modules/catalog-photo/generate.ts';
+import type { SearchProvider, WebCandidate } from '../../src/modules/catalog-photo/search.ts';
 
 export type WeatherScenario = 'cold_rain' | 'hot' | 'mild' | 'down';
 
@@ -101,14 +104,14 @@ async function paintBand(img: Buffer, from: number, to: number, color: { r: numb
   return sharp(img).composite([{ input: band, left: Math.round(width * 0.25), top: Math.round(height * from) }]).png().toBuffer();
 }
 
-const BANDS = { upper: [0.15, 0.5], lower: [0.5, 0.88], shoes: [0.9, 0.98], face: [0.02, 0.12] } as const;
+const BANDS = { upper: [0.15, 0.5], lower: [0.5, 0.88], shoes: [0.9, 0.98], face: [0.02, 0.12], feet: [0.9, 0.98] } as const;
 
 /**
  * Fake services/tryon: "dresses" a garment by painting its colour where it is worn (tops on the
  * chest band, bottoms on the legs) and parses by reading those bands back — enough to exercise the
  * sequential pipeline, its cache and the colour gate.
  */
-export const tryonState: { available: boolean; calls: string[]; masks: boolean[]; composites: string[]; recolor: { r: number; g: number; b: number } | null } = { available: true, calls: [], masks: [], composites: [], recolor: null };
+export const tryonState: { available: boolean; calls: string[]; masks: boolean[]; composites: string[]; noFeet: boolean; recolor: { r: number; g: number; b: number } | null } = { available: true, calls: [], masks: [], composites: [], noFeet: false, recolor: null };
 
 export function fakeTryon(): TryonService {
   return {
@@ -136,7 +139,7 @@ export function fakeTryon(): TryonService {
           .ensureAlpha()
           .png()
           .toBuffer();
-        out[k] = { area: 0.1, png_base64: crop.toString('base64') };
+        out[k] = { area: k === 'feet' && tryonState.noFeet ? 0 : 0.1, png_base64: crop.toString('base64') };
       }
       return out;
     },
@@ -149,11 +152,6 @@ export function fakeImageGenerator(): ImageGenerator {
       const on = imagegenState.available;
       return { available: on, studio: on, avatar: on, reason: on ? null : 'El generador de imágenes no está configurado en este servidor.', models: { studio: on ? 'fake-studio' : null, avatar: on ? 'fake-avatar' : null } };
     },
-    async studio() {
-      imagegenState.calls.push('studio');
-      if (!imagegenState.output) throw new ComfyError('fallo simulado', false);
-      return imagegenState.output;
-    },
     async avatar(input) {
       imagegenState.calls.push('avatar');
       imagegenState.lastAvatarBoard = input.outfitBoard;
@@ -162,6 +160,14 @@ export function fakeImageGenerator(): ImageGenerator {
     },
     hasWorkflow() {
       return imagegenState.available;
+    },
+    workflowModel(name) {
+      return imagegenState.available ? `fake-${name}` : null;
+    },
+    async run(name) {
+      imagegenState.calls.push(name);
+      if (!imagegenState.output) throw new ComfyError('fallo simulado', false);
+      return imagegenState.output;
     },
     async runWorkflow(name, images) {
       imagegenState.calls.push(name);
@@ -176,7 +182,7 @@ export function fakeImageGenerator(): ImageGenerator {
 export function fakeVision(): VisionClient {
   const embed = fakeEmbed;
   // The cut-out garment keeps the photo's (mean) colour, like the real service.
-  const cutout = (rgb: { r: number; g: number; b: number }) => sharp({ create: { width: 64, height: 80, channels: 4, background: { ...rgb, alpha: 1 } } }).png().toBuffer();
+  const cutout = (rgb: { r: number; g: number; b: number }) => sharp({ create: { width: 256, height: 320, channels: 4, background: { ...rgb, alpha: 1 } } }).png().toBuffer();
   return {
     async analyze(image: Buffer, _mime: string, mode: 'single' | 'multi'): Promise<VisionAnalysis> {
       visionState.calls++;
@@ -219,6 +225,35 @@ export function fakeVision(): VisionClient {
       const passed = diff < 12;
       return { shape_iou: 1, mean_delta_e: diff / 2, p90_delta_e: diff / 2, max_cell_delta_e: diff, ssim: passed ? 0.9 : 0.2, cells: 64, passed, reasons: passed ? [] : ['Ha cambiado el color de la prenda.'] };
     },
+    /**
+     * Catalogue check with the real contract: same garment when the mean colours are close;
+     * a generated packshot fails presentation while `catalogState.failPresentation` > 0 and
+     * fidelity while `catalogState.failFidelity` > 0.
+     */
+    async catalogCheck(reference: Buffer, candidate: Buffer, opts: { kind: 'generated' | 'official'; category?: string | null }) {
+      catalogState.checks.push(opts.kind);
+      const mean = async (b: Buffer) => (await sharp(b).flatten({ background: '#ffffff' }).stats()).channels.slice(0, 3).map((c) => c.mean);
+      const [a, b] = await Promise.all([mean(reference), mean(candidate)]);
+      const diff = Math.max(...a.map((x, i) => Math.abs(x - b[i]!)));
+      const forcedFid = opts.kind === 'generated' && catalogState.failFidelity > 0 ? (catalogState.failFidelity--, true) : false;
+      const fidOk = diff < 30 && !forcedFid;
+      const presOk = !(opts.kind === 'generated' && catalogState.failPresentation > 0 && catalogState.failPresentation--);
+      return {
+        presentation: {
+          background_l: 99, background_l_std: 0.2, background_chroma: 0.3, margin: 0.05, extent: 0.9,
+          symmetry: presOk ? 0.96 : 0.71, tilt: 0.5, components: 1, neat: presOk ? 0.8 : 0.2, worn: 0.05,
+          passed: presOk, reasons: presOk ? [] : ['La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.'], codes: presOk ? [] : ['asymmetric'],
+        },
+        fidelity: {
+          similarity: fidOk ? 0.95 : 0.4, category: opts.category ?? 'top', subcategory: null, same_category: true, pattern: 'liso', reference_pattern: 'liso',
+          palette_emd: fidOk ? 2 : 25, lightness_shift: 0, missing_colors: [], extra_colors: [], texture_chi2: 0.01,
+          reference_text: null, candidate_text: null, text_match: null,
+          passed: fidOk, reasons: fidOk ? [] : ['Ha cambiado los colores de la prenda.'], codes: fidOk ? [] : ['color'],
+        },
+        bbox: [0.05, 0.05, 0.95, 0.95],
+        cutout_png_base64: (await sharp(candidate).png().toBuffer()).toString('base64'),
+      };
+    },
     /** The person cut out: the whole photo, opaque (coverage 1). */
     async matte(image: Buffer) {
       const png = await sharp(image).ensureAlpha().png().toBuffer();
@@ -233,12 +268,70 @@ export function fakeVision(): VisionClient {
       return { embeddings: [], model: 'fake', dim: 768 };
     },
     async ocr() {
-      return { text: '', lines: [] };
+      return { text: catalogState.ocr, lines: catalogState.ocr ? [{ text: catalogState.ocr, confidence: 0.9 }] : [] };
     },
     async health() {
       return { status: 'ok', backend: 'fake' };
     },
   } as unknown as VisionClient;
+}
+
+/**
+ * Fake reverse-image search and packshot generator (the real ones call paid external APIs): the
+ * search returns `catalogState.results`, the generator returns `catalogState.outputs` in order.
+ */
+export const catalogState: {
+  results: WebCandidate[];
+  searches: string[];
+  outputs: Buffer[];
+  prompts: string[];
+  checks: string[];
+  failPresentation: number;
+  failFidelity: number;
+  ocr: string;
+  generatorAvailable: boolean;
+} = { results: [], searches: [], outputs: [], prompts: [], checks: [], failPresentation: 0, failFidelity: 0, ocr: '', generatorAvailable: true };
+
+export function fakeCatalogPhoto(): CatalogPhotoProviders {
+  const lens: SearchProvider = {
+    id: 'serpapi_lens',
+    label: 'Google Lens (SerpApi)',
+    requires: ['SERPAPI_API_KEY'],
+    configured: true,
+    costCents: 2.5,
+    async search(_image, o) {
+      catalogState.searches.push(o.query);
+      return { candidates: catalogState.results.map((c) => ({ ...c, query: o.query })), hints: [], raw: {} };
+    },
+  };
+  const lykdat: SearchProvider = {
+    id: 'lykdat',
+    label: 'Lykdat',
+    requires: ['LYKDAT_API_KEY'],
+    configured: false,
+    costCents: 1.67,
+    async search() {
+      throw new Error('no configurado: no debe llamarse');
+    },
+  };
+  const gen: PackshotGenerator = {
+    id: 'fal',
+    label: 'fal.ai',
+    model: 'fake-packshot',
+    requires: ['FAL_KEY'],
+    configured: true,
+    estimatedCostCents: 3.5,
+    async available() {
+      return catalogState.generatorAvailable;
+    },
+    async generate(input) {
+      catalogState.prompts.push(input.prompt.prompt);
+      const image = catalogState.outputs.shift();
+      if (!image) throw new GenerationError('fallo simulado', false);
+      return { image, model: 'fake-packshot', costCents: 3.5 };
+    },
+  };
+  return { search: [lens, lykdat], generators: [gen] };
 }
 
 /** Local fixture "store" serving synthetic product pages (not copied from any retailer). */
@@ -287,7 +380,7 @@ export async function setupApp() {
   const cfg = loadConfig({ ...process.env, STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir, LINK_IMPORT_ALLOW_PRIVATE: 'true', NODE_ENV: 'test', TRYON_MIN_SIMILARITY: '-1' });
   const { db: weatherDb } = createDb(cfg.DATABASE_URL, 2);
   const queue = new InlineJobQueue(1);
-  const built = await buildApp({ cfg, queue, inlineWorker: true, overrides: { weather: new WeatherService(weatherDb, undefined, fakeWeatherFetch as typeof fetch), vision: fakeVision(), imagegen: fakeImageGenerator(), tryon: fakeTryon() } });
+  const built = await buildApp({ cfg, queue, inlineWorker: true, overrides: { weather: new WeatherService(weatherDb, undefined, fakeWeatherFetch as typeof fetch), vision: fakeVision(), imagegen: fakeImageGenerator(), tryon: fakeTryon(), catalogPhoto: fakeCatalogPhoto() } });
   const { app } = built;
   const close = async () => {
     await built.close();

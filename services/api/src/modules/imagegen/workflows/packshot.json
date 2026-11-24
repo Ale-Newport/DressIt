@@ -71,7 +71,7 @@
         "2",
         0
       ],
-      "prompt": "Make this a professional studio product photo of the {{DESCRIPTION}}: pure white seamless background, soft even studio lighting, garment centred and fully visible. Do not change the garment at all: keep every detail identical, including the exact number, colour and position of buttons, the knit or fabric texture of every part, sleeves, collar, hems, labels, prints and logos. Only remove hangers, pegs, mannequins, people and the background.",
+      "prompt": "{{PROMPT}}",
       "vae": [
         "3",
         0
@@ -121,16 +121,11 @@
     }
   },
   "24": {
-    "class_type": "VAEEncode",
+    "class_type": "EmptySD3LatentImage",
     "inputs": {
-      "pixels": [
-        "11",
-        0
-      ],
-      "vae": [
-        "3",
-        0
-      ]
+      "width": "{{WIDTH}}",
+      "height": "{{HEIGHT}}",
+      "batch_size": 1
     }
   },
   "25": {
@@ -180,7 +175,7 @@
         "26",
         0
       ],
-      "filename_prefix": "dressit_studio"
+      "filename_prefix": "dressit_packshot"
     }
   }
 }

@@ -7,6 +7,8 @@
  *  - completed/failed import jobs: 90 days (images of accepted garments are kept)
  *  - photos never turned into garments: 30 days (visual-search photos: 7 days)
  *  - cached virtual try-on steps: 30 days (the final renders the user keeps are not affected)
+ *  - catalogue photos: external search responses 30 days; dismissed/failed jobs 30 days; generated
+ *    packshots never attached to a garment (rejected detections) 30 days; usage counters 400 days
  *  - recommendation events: 365 days
  *  - expired sessions: 7 days after expiry
  */
@@ -50,6 +52,15 @@ export async function runRetention(client: pg.Client, storage: Storage): Promise
        returning storage_key, thumb_storage_key`,
     );
     orphanFiles = orphanFiles.concat(steps.rows as typeof orphanFiles);
+    await run('visual_search_cache', `delete from visual_search_cache where created_at < now() - interval '30 days'`);
+    await run('catalog_photo_jobs', `delete from catalog_photo_jobs where status in ('dismissed', 'failed') and coalesce(finished_at, updated_at) < now() - interval '30 days'`);
+    await run('external_api_usage', `delete from external_api_usage where day < current_date - 400`);
+    const packshots = await run(
+      'unattached_packshots',
+      `delete from garment_images gi where gi.kind in ('studio', 'product_reference') and gi.garment_id is null and gi.created_at < now() - interval '30 days'
+       returning storage_key, thumb_storage_key`,
+    );
+    orphanFiles = orphanFiles.concat((packshots.rows as typeof orphanFiles).filter((r) => !r.storage_key.startsWith('remote:')));
     await run('recommendation_events', `delete from recommendation_events where created_at < now() - interval '365 days'`);
     await run('auth_sessions', `delete from auth_sessions where expires_at < now() - interval '7 days'`);
     await client.query('commit');

@@ -1,8 +1,9 @@
 /**
  * Virtual try-on and photo tools: progress of a sequential try-on, choosing the avatar image and
- * the method, and the manual cutout correction (taps → normalised points sent to the API).
+ * the method, the manual cutout correction (taps → normalised points sent to the API) and the
+ * catalogue photo (official photo / AI packshot, compared and chosen by the user).
  */
-import type { AvatarProfileDto, GarmentDetailDto, GenerationJobDto, GenerationServiceStatusDto } from '@dressit/shared';
+import type { AvatarProfileDto, CatalogMatchDto, CatalogPhotoDto, CatalogPhotoSummaryDto, GarmentDetailDto, GenerationJobDto, GenerationServiceStatusDto } from '@dressit/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
@@ -10,6 +11,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AvatarRenderCard } from '@/components/outfits/AvatarRenderCard';
 import { ToastProvider } from '@/components/ui';
+import { CatalogPhotoPreview } from '@/components/capture/CatalogPhotoPreview';
+import { CatalogPhotoCard } from '@/components/wardrobe/CatalogPhotoCard';
 import { GarmentPhotoTools } from '@/components/wardrobe/GarmentPhotoTools';
 import { RecutEditor } from '@/components/wardrobe/RecutEditor';
 import { progressText, progressValue } from '@/lib/avatar';
@@ -156,23 +159,112 @@ describe('garment photo tools', () => {
   const detail = (over: Partial<GarmentDetailDto> = {}) =>
     ({ ...garment({ id: 'g1' }), images: [img('orig')], notes: null, model: null, attributes: [], availabilityHistory: [], wearHistory: [], compatibleCount: null, ...over }) as GarmentDetailDto;
 
-  it('opens the cutout correction and adds the official photo of a matching product', async () => {
-    routes = [
-      ['GET', /\/v1\/garments\/g1\/official-photo$/, { matches: [{ productId: 'p1', title: 'Plumífero ligero', retailer: 'Tienda Prueba', imageUrl: 'https://x/p1.jpg', similarity: 0.93, url: null }], message: '' }],
-      ['POST', /\/v1\/garments\/g1\/official-photo$/, { ...img('official'), license: 'retailer_licensed', attribution: 'Foto oficial de Tienda Prueba' }],
-    ];
+  it('opens the cutout correction, hidden without an original photo', async () => {
     await renderUi(<GarmentPhotoTools garment={detail()} />);
     await fireEvent.press(screen.getByTestId('garment-recut'));
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/garment/recut', params: { garmentId: 'g1' } });
-    expect(await screen.findByText('Tienda Prueba · parecido 93 %')).toBeOnTheScreen();
-    await fireEvent.press(screen.getByTestId('official-add-p1'));
-    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ productId: 'p1' }));
-  });
-
-  it('explains why there is no official photo, and hides the correction without an original photo', async () => {
-    routes = [['GET', /\/v1\/garments\/g1\/official-photo$/, { matches: [], message: 'No hay catálogos de tiendas autorizados conectados.' }]];
     await renderUi(<GarmentPhotoTools garment={detail({ images: [{ ...img('cut'), isCutout: true }] })} />);
-    expect(await screen.findByText('No hay catálogos de tiendas autorizados conectados.')).toBeOnTheScreen();
     expect(screen.queryByTestId('garment-recut')).toBeNull();
   });
 });
+
+describe('catalogue photo', () => {
+  const detail = (over: Partial<GarmentDetailDto> = {}) =>
+    ({ ...garment({ id: 'g1' }), images: [img('orig')], notes: null, model: null, attributes: [], availabilityHistory: [], wearHistory: [], compatibleCount: null, ...over }) as GarmentDetailDto;
+  const consents = [
+    { kind: 'ai_image_generation', granted: true, version: '1', updatedAt: null },
+    { kind: 'visual_search_external', granted: true, version: '1', updatedAt: null },
+  ];
+  const check = (passed: boolean, reasons: string[] = []) => ({ passed, presentationPassed: passed, fidelityPassed: true, similarity: 0.91, symmetry: 0.95, neat: 0.8, paletteDeltaE: 5, textMatch: null, reasons });
+  const match = (over: Partial<CatalogMatchDto> = {}): CatalogMatchDto => ({
+    id: 'm1', provider: 'serpapi_lens', verdict: 'exact', title: 'Jersey de punto', brand: 'Marca', retailer: 'Tienda', domain: 'tienda.es', pageUrl: 'https://tienda.es/p', imageUrl: 'https://tienda.es/p.jpg', price: null,
+    similarity: 0.93, evidence: ['La marca leída en la prenda coincide.'], doubts: [], usage: 'link_preview', studioLike: true, ...over,
+  });
+  const job = (over: Partial<CatalogPhotoDto> = {}): CatalogPhotoDto => ({
+    id: 'c1', garmentId: 'g1', detectionId: null, status: 'ready', stage: null, original: { ...img('cut'), isCutout: true }, official: null, alternatives: [], generated: null, generatedCheck: null, attempts: [],
+    providers: [{ id: 'serpapi_lens', label: 'Google Lens (SerpApi)', status: 'not_configured', message: 'Falta SERPAPI_API_KEY en el servidor.' }],
+    recognised: { brand: null, text: null, reference: null }, choice: null, message: null, error: null, createdAt: '2026-11-24T10:00:00Z', finishedAt: '2026-11-24T10:01:00Z', ...over,
+  });
+
+  it('shows the progress while it is being prepared', async () => {
+    routes = [
+      ['GET', /\/v1\/me\/consents$/, consents],
+      ['GET', /\/v1\/garments\/g1\/catalog-photo$/, job({ status: 'generating', stage: { step: 2, total: 3, label: 'Creando la foto de estudio de tu prenda…' } })],
+    ];
+    await renderUi(<CatalogPhotoCard garment={detail()} />);
+    expect(await screen.findByText('Creando la foto de estudio de tu prenda…')).toBeOnTheScreen();
+    expect(screen.getByText(/Paso 2 de 3/)).toBeOnTheScreen();
+  });
+
+  it('compares original, official and generated photos, and uses the one the user picks', async () => {
+    routes = [
+      ['GET', /\/v1\/me\/consents$/, consents],
+      ['GET', /\/v1\/garments\/g1\/catalog-photo$/, job({ official: match(), generated: { ...img('gen'), isCutout: true, generatedBy: 'Qwen' }, generatedCheck: check(true), message: 'Tienes la foto oficial y una foto de estudio creada con IA.' })],
+      ['POST', /\/v1\/catalog-photos\/c1\/choose$/, job({ choice: 'official', status: 'confirmed' })],
+    ];
+    await renderUi(<CatalogPhotoCard garment={detail()} />);
+    expect(await screen.findByTestId('catalog-official')).toBeOnTheScreen();
+    expect(screen.getByTestId('catalog-generated')).toBeOnTheScreen();
+    expect(screen.getByText('✓ La marca leída en la prenda coincide.')).toBeOnTheScreen();
+    expect(screen.getByText('La foto se muestra desde la web de la tienda (no se copia).')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId('catalog-use-official'));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ choice: 'official' }));
+    // Where it searched, including the engines this server has no key for.
+    await fireEvent.press(screen.getByTestId('catalog-sources-toggle'));
+    expect(screen.getByText(/Google Lens \(SerpApi\): sin configurar en el servidor/)).toBeOnTheScreen();
+  });
+
+  it('explains a packshot that did not pass the checks and only uses it if the user insists', async () => {
+    routes = [
+      ['GET', /\/v1\/me\/consents$/, consents],
+      ['GET', /\/v1\/garments\/g1\/catalog-photo$/, job({ status: 'needs_user', generated: { ...img('gen'), isCutout: true, generatedBy: 'Qwen' }, generatedCheck: check(false, ['La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.']), message: 'Tras 3 intentos…', alternatives: [match({ id: 'm2', verdict: 'possible', doubts: ['Solo hay parecido visual: ninguna marca, referencia ni otra fuente lo confirma.'] })] })],
+      ['POST', /\/v1\/catalog-photos\/c1\/choose$/, job({ choice: 'generated', status: 'confirmed' })],
+      ['POST', /\/v1\/garments\/g1\/catalog-photo$/, job({ status: 'queued' })],
+    ];
+    await renderUi(<CatalogPhotoCard garment={detail()} />);
+    expect(await screen.findByText(/no quedan simétricos/)).toBeOnTheScreen();
+    expect(screen.queryByTestId('catalog-use-generated')).toBeNull();
+    expect(screen.getByText(/Solo hay parecido visual/)).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId('catalog-accept-warnings'));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/choose'))?.body).toEqual({ choice: 'generated', acceptWarnings: true }));
+    await fireEvent.press(screen.getByTestId('catalog-regenerate'));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/catalog-photo'))?.body).toEqual({ mode: 'generate' }));
+  });
+
+  it('asks for another photo when the garment is cut by the frame, or generates anyway', async () => {
+    routes = [
+      ['GET', /\/v1\/me\/consents$/, consents],
+      ['GET', /\/v1\/garments\/g1\/catalog-photo$/, job({ status: 'needs_user', message: 'La prenda sale cortada por los bordes de la foto: haz otra con la prenda entera para no inventar las partes que no se ven.' })],
+      ['POST', /\/v1\/garments\/g1\/catalog-photo$/, job({ status: 'queued' })],
+    ];
+    await renderUi(<CatalogPhotoCard garment={detail()} />);
+    await fireEvent.press(await screen.findByTestId('catalog-force'));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ mode: 'generate', force: true }));
+  });
+});
+
+describe('catalogue photo in the review queue', () => {
+  const summary = (over: Partial<CatalogPhotoSummaryDto> = {}): CatalogPhotoSummaryDto => ({
+    id: 'c9', status: 'ready', stage: null, official: { imageUrl: 'https://tienda.es/p.jpg', retailer: 'Tienda', verdict: 'exact' }, generated: { ...img('gen'), isCutout: true, generatedBy: 'Qwen' }, generatedPassed: true, choice: null, message: 'Foto de catálogo lista', ...over,
+  });
+
+  it('shows the progress while the official photo is searched', async () => {
+    await renderUi(<CatalogPhotoPreview summary={summary({ status: 'searching', stage: { step: 1, total: 3, label: 'Buscando la foto oficial de la prenda…' }, official: null, generated: null })} importJobId="j1" detectionId="d1" />);
+    expect(screen.getByText('Buscando la foto oficial de la prenda…')).toBeOnTheScreen();
+  });
+
+  it('lets the user pick the official or the AI photo before adding the garment', async () => {
+    routes = [['POST', /\/v1\/catalog-photos\/c9\/choose$/, { id: 'c9' }]];
+    await renderUi(<CatalogPhotoPreview summary={summary()} importJobId="j1" detectionId="d1" />);
+    expect(screen.getByTestId('detection-d1-catalog-official')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId('detection-d1-catalog-generated'));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ choice: 'generated' }));
+  });
+
+  it('never offers a packshot that failed the checks as a one-tap choice', async () => {
+    await renderUi(<CatalogPhotoPreview summary={summary({ status: 'needs_user', official: null, generatedPassed: false, message: 'Tras 3 intentos…' })} importJobId="j1" detectionId="d1" />);
+    expect(screen.queryByTestId('detection-d1-catalog-generated')).toBeNull();
+    expect(screen.getByText('Tras 3 intentos…')).toBeOnTheScreen();
+  });
+});
+

@@ -9,7 +9,8 @@ export interface ParsedRegion {
   area: number;
   png_base64: string | null;
 }
-export type ParsedRegions = Record<'upper' | 'lower' | 'shoes' | 'face', ParsedRegion>;
+/** `feet`: feet, socks or shoes — whether the photo shows the feet at all. */
+export type ParsedRegions = Record<'upper' | 'lower' | 'shoes' | 'face' | 'feet', ParsedRegion>;
 
 export interface TryonService {
   health(): Promise<boolean>;

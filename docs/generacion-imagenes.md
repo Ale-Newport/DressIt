@@ -1,9 +1,12 @@
-# Generación de imágenes: fotos de estudio y avatar
+# Generación de imágenes: fotos de catálogo y avatar
 
 Dos funciones opcionales con IA generativa:
 
-1. **Foto de estudio** de una prenda: a partir de su recorte, una foto de producto sin fondo y con
-   luz uniforme.
+1. **Foto de catálogo** de una prenda: primero se busca la foto oficial; si no la hay, un packshot
+   generado a partir de la foto del usuario, con la prenda **extendida y bien colocada**. Desde el
+   24/11/2026 está en [foto-catalogo.md](foto-catalogo.md), que sustituye a la «foto de estudio» de
+   este documento: aquella partía del recorte, pedía no cambiar nada y exigía la misma silueta, así
+   que conservaba mangas dobladas y perneras torcidas.
 2. **Tu avatar**: al empezar (o en *Perfil → Tu avatar*) el usuario sube su foto de cuerpo entero
    (y, opcionalmente, una de su cara); después puede **verse con cualquier conjunto** desde su
    detalle. El probador por pasos, el avatar persistente y su evaluación están en
@@ -15,11 +18,13 @@ como tales, en la app y en el propio archivo.
 ## Arquitectura
 
 ```
-App ──POST /v1/garments/:id/studio──▶ API ──cola image-generation (concurrencia 1)──▶ worker
+App ──POST /v1/outfits/:id/avatar──▶ API ──cola image-generation (concurrencia 1)──▶ worker
                                                                                       │
-          ┌──────────── control de fidelidad (servicio de visión) ◀── imagen ◀── ComfyUI (Qwen-Image-Edit-2511)
+          ┌──────────── control de fidelidad (servicio de visión) ◀── imagen ◀── ComfyUI / servicio tryon
           ▼
-  aceptada → garment_images (kind studio, generated_by)      rechazada → nada guardado, motivo al usuario
+  aceptada → garment_images (kind avatar_render, generated_by)      rechazada → nada guardado, motivo al usuario
+
+App ──foto de catálogo──▶ cola catalog-photo (ver foto-catalogo.md): FASHN · fal.ai · ComfyUI (workflow packshot)
 ```
 
 - **ComfyUI** ([`services/imagegen`](../services/imagegen/README.md)) corre como programa aparte y se
@@ -29,14 +34,15 @@ App ──POST /v1/garments/:id/studio──▶ API ──cola image-generation 
   [`services/api/src/modules/imagegen/workflows`](../services/api/src/modules/imagegen/workflows),
   generados por [`build_workflows.py`](../services/imagegen/scripts/build_workflows.py) a partir de
   las plantillas oficiales de ComfyUI, con cargadores GGUF.
-  - `studio` / `avatar` usan Qwen-Image-Edit-2511 (por defecto).
-  - `studio-fast` / `avatar-fast` usan FLUX.2 klein 4B.
+  - `packshot` (foto de catálogo) y `avatar` usan Qwen-Image-Edit-2511 (por defecto). `packshot`
+    genera en un lienzo propio de 896×1120 con la instrucción completa que construye la API.
+  - `avatar-fast` usa FLUX.2 klein 4B. Los workflows `studio` y `studio-fast` se retiraron.
 - **API**: [`modules/imagegen`](../services/api/src/modules/imagegen).
   - Trabajos en `generation_jobs`; avatar en `avatar_profiles`; consentimientos `ai_image_generation`
     y `avatar`.
   - Endpoints:
     - `GET /v1/generation/status`
-    - `POST|GET /v1/garments/:id/studio`
+    - `POST|GET /v1/garments/:id/catalog-photo`, `GET /v1/catalog-photos/:id`, `POST /v1/catalog-photos/:id/choose` ([foto-catalogo.md](foto-catalogo.md))
     - `PUT /v1/garments/:id/primary-image`
     - `POST|GET /v1/outfits/:id/avatar`
     - `GET /v1/generations/:id`
@@ -51,13 +57,16 @@ pesos con licencia que permita uso comercial.
 
 | Uso | Modelo | Licencia | Descartados y motivo |
 |---|---|---|---|
-| Foto de estudio | **Qwen-Image-Edit-2511** (Q4_K_M) + LoRA Lightning de 4 pasos | Apache-2.0 | FLUX.1 Kontext [dev], FLUX.2 [dev] y klein 9B: licencia no comercial. Qwen-Image-2.1: Qwen Research License. LBM: CC BY-NC. BRIA RMBG-2.0: no comercial. |
-| Foto de estudio rápida | **FLUX.2 klein 4B** (Q8_0) | Apache-2.0 | — |
+| Foto de catálogo (packshot) | **Qwen-Image-Edit-2511** (Q4_K_M) + LoRA Lightning de 4 pasos; FASHN Agent Images y fal.ai si hay claves | Apache-2.0 | FLUX.1 Kontext [dev], FLUX.2 [dev] y klein 9B: licencia no comercial. Qwen-Image-2.1: Qwen Research License. LBM: CC BY-NC. BRIA RMBG-2.0: no comercial. |
+| (retirada) Foto de estudio rápida | FLUX.2 klein 4B (Q8_0) | Apache-2.0 | Más deriva de color; ya no se usa para prendas |
 | Avatar, una sola pasada | **Qwen-Image-Edit-2511**, con 3 imágenes: cuerpo, tablero del conjunto y cara | Apache-2.0 | Ver la tabla completa en [probador-virtual.md](probador-virtual.md#2-modelos-evaluados-y-elegidos). |
 | Avatar, por pasos (por defecto) | **FASHN VTON v1.5** + Sapiens2 + Qwen para calzado y complementos | Apache-2.0 / Sapiens2 License | — |
 | Vistas del avatar (3/4, perfil) | Qwen-Image-Edit-2511 + **Multiple-Angles LoRA** (fal) | Apache-2.0 | — |
 
 ## Resultados medidos (Mac M2 Max, 64 GB, ComfyUI 0.46 en MPS)
+
+Las filas «Estudio» son del sistema anterior (24/11/2026, mañana); las de la foto de catálogo están en
+[evidence/foto-catalogo-2026-11-24.md](evidence/foto-catalogo-2026-11-24.md).
 
 | Prueba | Tiempo | Resultado |
 |---|---|---|
@@ -77,8 +86,11 @@ tenga licencia abierta.
 
 ## Control de fidelidad (y sus límites)
 
-- **Foto de estudio:** la imagen generada se recorta (sin la corrección de color de fotos de móvil)
-  y se rechaza si cumple cualquiera de estas condiciones:
+- **Foto de estudio (sistema anterior, sustituido):** su control se describe a continuación por
+  historia. El actual, independiente de la colocación de la prenda, está en
+  [foto-catalogo.md](foto-catalogo.md#4-control-automático-presentación-y-fidelidad). La imagen
+  generada se recortaba (sin la corrección de color de fotos de móvil) y se rechazaba si cumplía
+  cualquiera de estas condiciones:
   - su huella visual (FashionSigLIP) se parece menos de `IMAGEGEN_MIN_SIMILARITY` (0,85) a la de la
     prenda;
   - el tipo de prenda cambia de categoría;
@@ -120,7 +132,7 @@ tenga licencia abierta.
 
 ## Limitaciones
 
-- **En el Mac de desarrollo es lento:** unos 3 min por foto de estudio y unos 9 min por avatar. En
+- **En el Mac de desarrollo es lento:** 3–8 min por foto de catálogo generada y unos 9 min por avatar. En
   una GPU de servidor serían segundos (ver [README del servidor](../services/imagegen/README.md)).
 - **Deriva de detalles:** botones, punto, rotos y accesorios. Se ha reducido con instrucciones más
   estrictas, pero no está resuelta.

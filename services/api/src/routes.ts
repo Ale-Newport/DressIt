@@ -20,7 +20,7 @@ import * as shopping from './modules/shopping/service.ts';
 import * as assistant from './modules/assistant/service.ts';
 import * as imagegen from './modules/imagegen/service.ts';
 import * as recut from './modules/images/recut.ts';
-import * as official from './modules/images/official.ts';
+import * as catalogPhoto from './modules/catalog-photo/service.ts';
 import { RETAILERS } from './modules/retail/registry.ts';
 
 // ---------------------------------------------------------------------------
@@ -405,17 +405,36 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
     }),
   );
 
-  // --- Generated images: studio photos and avatar ---------------------------------
+
+  // --- Catalogue photo: official store photo (reverse image search) or AI packshot ---------
+  app.get('/v1/catalog-photos/status', authed, async () => catalogPhoto.catalogPhotoStatus(ctx));
+  app.get('/v1/catalog-photos/:id', authed, user((trx, req) => catalogPhoto.getJob(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
+  app.post(
+    '/v1/catalog-photos/:id/choose',
+    authed,
+    user((trx, req) =>
+      catalogPhoto.choose(
+        ctx,
+        trx,
+        req.userId,
+        parse(uuid, (req.params as { id: string }).id),
+        parse(z.object({ choice: z.enum(['official', 'generated', 'original']), matchId: z.string().max(64).optional(), acceptWarnings: z.boolean().optional() }), req.body),
+      ),
+    ),
+  );
+  app.post('/v1/garments/:id/catalog-photo', { ...authed, config: { rateLimit: { max: 30, timeWindow: '1 hour' } } }, async (req, reply) => {
+    const garmentId = parse(uuid, (req.params as { id: string }).id);
+    const body = parse(z.object({ mode: z.enum(['auto', 'search', 'generate']).optional(), force: z.boolean().optional() }), req.body ?? {});
+    const { id, created } = await withUser(ctx.db, req.userId, (trx) => catalogPhoto.createForGarment(ctx, trx, req.userId, garmentId, body));
+    if (created) await ctx.queue.enqueueCatalogPhoto({ catalogPhotoId: id, userId: req.userId }); // after commit
+    reply.status(202);
+    return withUser(ctx.db, req.userId, (trx) => catalogPhoto.getJob(ctx, trx, req.userId, id));
+  });
+  app.get('/v1/garments/:id/catalog-photo', authed, user((trx, req) => catalogPhoto.latestForGarment(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
+
+  // --- Generated images: avatar ------------------------------------------------------
   app.get('/v1/generation/status', authed, async () => imagegen.generationStatus(ctx));
   app.get('/v1/generations/:id', authed, user((trx, req) => imagegen.getJob(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
-  app.post('/v1/garments/:id/studio', { ...authed, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
-    const garmentId = parse(uuid, (req.params as { id: string }).id);
-    const id = await withUser(ctx.db, req.userId, (trx) => imagegen.createStudioJob(ctx, trx, req.userId, garmentId));
-    await ctx.queue.enqueueGeneration({ generationId: id, userId: req.userId }); // after commit
-    reply.status(202);
-    return withUser(ctx.db, req.userId, (trx) => imagegen.getJob(ctx, trx, req.userId, id));
-  });
-  app.get('/v1/garments/:id/studio', authed, user((trx, req) => imagegen.listJobs(ctx, trx, req.userId, { garmentId: parse(uuid, (req.params as { id: string }).id) })));
   app.put(
     '/v1/garments/:id/primary-image',
     authed,
@@ -550,12 +569,6 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
     }),
   );
   app.get('/v1/garments/:id/recut', authed, user((trx, req) => recut.garmentRecutSource(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
-  app.get('/v1/garments/:id/official-photo', authed, user((trx, req) => official.officialMatches(trx, parse(uuid, (req.params as { id: string }).id))));
-  app.post(
-    '/v1/garments/:id/official-photo',
-    authed,
-    user((trx, req) => official.addOfficialImage(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id), parse(z.object({ productId: uuid }), req.body).productId)),
-  );
   app.post(
     '/v1/garments/:id/recut',
     { ...authed, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },

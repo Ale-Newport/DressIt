@@ -9,6 +9,7 @@ import { categoryLabel, colorHex, fitLabel, materialLabel, patternLabel, seasonL
 import { radius, space, useTheme } from '@/theme';
 
 import { familiesFromColors } from '../wardrobe/GarmentFields';
+import { CatalogPhotoPreview } from './CatalogPhotoPreview';
 
 type PredKey = 'category' | 'subcategory' | 'pattern' | 'materials' | 'styles' | 'seasons' | 'fit' | 'brand' | 'formality' | 'warmth';
 const PRED_ORDER: PredKey[] = ['category', 'subcategory', 'brand', 'pattern', 'materials', 'styles', 'seasons', 'fit', 'formality', 'warmth'];
@@ -136,6 +137,8 @@ export function DetectionCard({ detection: d, index, overrides, onOverride, onAc
             </View>
           </View>
         ) : null}
+
+        {d.catalogPhoto && jobId && d.state === 'pending' ? <CatalogPhotoPreview summary={d.catalogPhoto} importJobId={jobId} detectionId={d.id} /> : null}
 
         <Text variant="overline" tone="muted">
           {t('review.predicted')}

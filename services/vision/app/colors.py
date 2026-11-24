@@ -80,8 +80,9 @@ def hex_to_lab(hex_str: str) -> np.ndarray:
     return rgb_to_lab(np.array(hex_to_rgb(hex_str), dtype=np.float64))
 
 
-def delta_e2000(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
-    """CIEDE2000 between broadcastable Lab arrays (``(..., 3)``)."""
+def delta_e2000(lab1: np.ndarray, lab2: np.ndarray, kl: float = 1.0) -> np.ndarray:
+    """CIEDE2000 between broadcastable Lab arrays (``(..., 3)``). ``kl`` is the lightness parametric
+    factor (1 by default; 2 is the usual textile setting, less sensitive to lightness)."""
     lab1 = np.asarray(lab1, dtype=np.float64)
     lab2 = np.asarray(lab2, dtype=np.float64)
     L1, a1, b1 = lab1[..., 0], lab1[..., 1], lab1[..., 2]
@@ -133,7 +134,7 @@ def delta_e2000(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
     Sh = 1 + 0.015 * Cbarp * T
     Rt = -np.sin(2 * dTheta * rad) * Rc
     return np.sqrt(
-        (dLp / Sl) ** 2
+        (dLp / (kl * Sl)) ** 2
         + (dCp / Sc) ** 2
         + (dHp / Sh) ** 2
         + Rt * (dCp / Sc) * (dHp / Sh)

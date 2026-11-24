@@ -7,7 +7,7 @@ import { elevation } from '@/theme';
 import { Text } from './Text';
 
 export interface CutoutImageProps {
-  image: Pick<ImageRefDto, 'id' | 'url' | 'thumbUrl' | 'isCutout'> & { generatedBy?: string | null };
+  image: Pick<ImageRefDto, 'id' | 'url' | 'thumbUrl' | 'isCutout'> & { generatedBy?: string | null; license?: ImageRefDto['license'] };
   /** Visible "Generada con IA" label on AI-generated images (default true; EU AI Act art. 50). */
   aiLabel?: boolean;
   /** Small "IA" label for small pictures (flat lays, grids). */
@@ -36,7 +36,8 @@ export function CutoutImage({ image, variant = 'thumb', inset = 0, shadow = true
     <Image
       source={{ uri, cacheKey: `img-${image.id}-${variant}` }}
       style={StyleSheet.absoluteFill}
-      contentFit={image.isCutout ? 'contain' : 'cover'}
+      // Store photos are product shots: shown whole, never cropped.
+      contentFit={image.isCutout || (image.license && image.license !== 'user_owned') ? 'contain' : 'cover'}
       cachePolicy="memory-disk"
       recyclingKey={recyclingKey}
       transition={140}

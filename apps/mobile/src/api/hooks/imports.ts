@@ -25,6 +25,12 @@ export function isJobRunning(job: ImportJobDto | undefined): boolean {
   return !!job && (job.status === 'queued' || job.status === 'processing');
 }
 
+const CATALOG_ACTIVE = new Set(['queued', 'searching', 'generating']);
+/** A detection's catalogue photo (official photo search / AI packshot) is still being prepared. */
+export function isCatalogPhotoRunning(job: ImportJobDto | undefined): boolean {
+  return !!job?.detections.some((d) => d.state === 'pending' && d.catalogPhoto && CATALOG_ACTIVE.has(d.catalogPhoto.status));
+}
+
 export function useCreatePhotoImport() {
   const qc = useQueryClient();
   return useMutation({
@@ -42,7 +48,7 @@ export function useImportJob(id: string | undefined) {
     queryKey: qk.imports.job(id ?? ''),
     queryFn: () => api.get<ImportJobDto>(`/v1/imports/${id}`),
     enabled: !!id,
-    refetchInterval: (q) => (isJobRunning(q.state.data) ? 1500 : false),
+    refetchInterval: (q) => (isJobRunning(q.state.data) ? 1500 : isCatalogPhotoRunning(q.state.data) ? 4000 : false),
     staleTime: 0,
   });
 }

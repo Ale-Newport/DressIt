@@ -55,6 +55,9 @@ FASHN_CAT = {
     "one_piece": "one-pieces",
 }
 ORDER = {"bottom": 0, "one_piece": 0, "top": 1, "outer": 2}
+# "masked-top": the base top first (it removes the old upper garment including its hem), then the
+# bottom (which redraws the waist), then outer layers.
+ORDER_TOP_FIRST = {"top": 0, "one_piece": 0, "bottom": 1, "outer": 2}
 
 
 def multipart(fields: dict, files: dict) -> tuple[bytes, str]:
@@ -235,10 +238,11 @@ def run_extras(cur: Image.Image, extras: list[dict], seed: int) -> Image.Image:
     return Image.open(io.BytesIO(data)).convert("RGB")
 
 
-def run_sequential(person: Image.Image, garments: list[dict], seed: int, steps: int, masked: bool = False) -> tuple[Image.Image, list[Image.Image]]:
+def run_sequential(person: Image.Image, garments: list[dict], seed: int, steps: int, masked: bool = False, top_first: bool = False) -> tuple[Image.Image, list[Image.Image]]:
     """``masked``: the first garment of each region replaces what the photo shows there (Sapiens2
     clothing-agnostic image, like the API does); otherwise every garment is dressed over (maskless)."""
-    clothes = sorted([g for g in garments if g["slot"] in FASHN_CAT], key=lambda g: ORDER[g["slot"]])
+    order = ORDER_TOP_FIRST if top_first else ORDER
+    clothes = sorted([g for g in garments if g["slot"] in FASHN_CAT], key=lambda g: order[g["slot"]])
     cur, stages = person, []
     upper_done = False
     for g in clothes:
@@ -348,7 +352,7 @@ def main() -> None:
                 if method == "joint":
                     img = run_joint(person, face, case["garments"], seed)
                 else:
-                    img, stages = run_sequential(person, case["garments"], seed, args.steps, masked=method == "masked")
+                    img, stages = run_sequential(person, case["garments"], seed, args.steps, masked=method.startswith("masked"), top_first=method == "masked-top")
                     for i, s in enumerate(stages):
                         s.save(out / f"{case['id']}-{method}-step{i + 1}.jpg", quality=90)
                 seconds = round(time.perf_counter() - t, 1)

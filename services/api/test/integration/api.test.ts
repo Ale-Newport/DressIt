@@ -276,7 +276,7 @@ describe('photo digitisation', () => {
     // accept-all skips duplicates
     expect((await t.app.inject({ method: 'POST', url: `/v1/imports/${job2.id}/accept-all`, headers: u.auth })).json().accepted).toBe(0);
   });
-  it('proposes the official photo from an authorised catalogue and adds it only when confirmed', async () => {
+  it('finds the official photo in an authorised catalogue, verifies it and uses it only when confirmed', async () => {
     const u = await registerUser(t);
     const up = multipart(await testImage({ r: 60, g: 90, b: 140 }), { kind: 'garment_photo' });
     const img = (await t.app.inject({ method: 'POST', url: '/v1/uploads', headers: { ...u.auth, ...up.headers }, payload: up.payload })).json();
@@ -303,19 +303,29 @@ describe('photo digitisation', () => {
     } finally {
       await admin.end();
     }
-    const found = (await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}/official-photo`, headers: u.auth })).json();
-    expect(found.matches).toHaveLength(1);
-    expect(found.matches[0]).toMatchObject({ productId, retailer: 'Decathlon', similarity: 1 });
-    expect(found.message).toMatch(/confirma/);
+    // The catalogue photo search finds the licensed product (same appearance) and verifies its photo.
+    const started = await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/catalog-photo`, headers: u.auth, payload: { mode: 'search' } });
+    expect(started.statusCode).toBe(202);
+    await t.queue.drain();
+    const cp = (await t.app.inject({ method: 'GET', url: `/v1/catalog-photos/${started.json().id}`, headers: u.auth })).json();
+    expect(cp.status).toBe('ready');
+    expect(cp.official).toMatchObject({ provider: 'catalog', verdict: 'exact', retailer: 'Decathlon', usage: 'licensed', title: 'Camiseta técnica azul' });
+    expect(cp.official.evidence.join(' ')).toMatch(/catálogo autorizado/);
+    expect(cp.message).toMatch(/Decathlon/);
     // Nothing was added yet; confirming stores it with the retailer's attribution, keeping the user's photos.
     expect((await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json().images.some((i: { license: string }) => i.license === 'retailer_licensed')).toBe(false);
-    const added = (await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/official-photo`, headers: u.auth, payload: { productId } })).json();
-    expect(added).toMatchObject({ license: 'retailer_licensed', attribution: 'Foto oficial de Decathlon', isCutout: false });
+    const chosen = (await t.app.inject({ method: 'POST', url: `/v1/catalog-photos/${cp.id}/choose`, headers: u.auth, payload: { choice: 'official' } })).json();
+    expect(chosen).toMatchObject({ status: 'confirmed', choice: 'official' });
     const detail = (await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json();
-    expect(detail.images.map((i: { id: string }) => i.id)).toContain(added.id);
-    expect(detail.image.id).not.toBe(added.id);
-    expect((await t.app.inject({ method: 'PUT', url: `/v1/garments/${garment.id}/primary-image`, headers: u.auth, payload: { imageId: added.id } })).statusCode).toBe(204);
-    expect((await t.app.inject({ method: 'POST', url: `/v1/garments/${garment.id}/official-photo`, headers: u.auth, payload: { productId: garment.id } })).statusCode).toBe(400);
+    // The licensed photo is copied, with its cutout (same licence and attribution) as the main picture.
+    expect(detail.image).toMatchObject({ license: 'retailer_licensed', attribution: 'Foto oficial de Decathlon', isCutout: true });
+    expect(detail.images.some((i: { isCutout: boolean; license: string }) => !i.isCutout && i.license === 'retailer_licensed')).toBe(true);
+    expect(detail.images.some((i: { isCutout: boolean; license: string }) => i.isCutout && i.license === 'user_owned')).toBe(true);
+    expect(detail.model).toBe('Camiseta técnica azul');
+    // Back to the user's own photo at any time.
+    expect((await t.app.inject({ method: 'POST', url: `/v1/catalog-photos/${cp.id}/choose`, headers: u.auth, payload: { choice: 'original' } })).json().choice).toBe('original');
+    expect((await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json().image).toMatchObject({ isCutout: true, license: 'user_owned' });
+    expect((await t.app.inject({ method: 'POST', url: `/v1/catalog-photos/${cp.id}/choose`, headers: u.auth, payload: { choice: 'official', matchId: 'nope' } })).statusCode).toBe(400);
   });
   it('lets the user correct a cutout with points, keeping every previous version', async () => {
     const u = await registerUser(t);

@@ -9,14 +9,6 @@ import { fileURLToPath } from 'node:url';
 import type { Config } from '../../config.ts';
 import { ComfyClient, ComfyError, fillWorkflow, loadWorkflow } from './comfy.ts';
 
-export interface StudioInput {
-  /** The garment's own background-free cutout (PNG with alpha). */
-  cutoutPng: Buffer;
-  /** Spanish/English description used in the prompt, e.g. "chunky knit cardigan, camel". */
-  description: string;
-  seed: number;
-}
-
 export interface AvatarInput {
   face: Buffer;
   body: Buffer;
@@ -37,11 +29,14 @@ export interface GeneratorInfo {
 
 export interface ImageGenerator {
   info(): Promise<GeneratorInfo>;
-  studio(input: StudioInput): Promise<Buffer>;
   avatar(input: AvatarInput): Promise<Buffer>;
   /** Any installed workflow (`tryon-accessories`, `avatar-view`…): images by placeholder name. */
   runWorkflow(name: string, images: Record<string, Buffer>, description: string, seed: number): Promise<Buffer>;
+  /** Any installed workflow with explicit placeholder values (`PROMPT`, `SEED`, `WIDTH`…). */
+  run(name: string, images: Record<string, Buffer>, values: Record<string, string | number>): Promise<Buffer>;
   hasWorkflow(name: string): boolean;
+  /** Model name of a workflow (its meta file), or null if not installed. */
+  workflowModel(name: string): string | null;
 }
 
 export { ComfyError };
@@ -50,17 +45,20 @@ export class DisabledGenerator implements ImageGenerator {
   async info(): Promise<GeneratorInfo> {
     return { available: false, studio: false, avatar: false, reason: 'El generador de imágenes no está configurado en este servidor.', models: { studio: null, avatar: null } };
   }
-  async studio(): Promise<Buffer> {
-    throw new ComfyError('El generador de imágenes no está configurado.', false);
-  }
   async avatar(): Promise<Buffer> {
     throw new ComfyError('El generador de imágenes no está configurado.', false);
   }
   async runWorkflow(): Promise<Buffer> {
     throw new ComfyError('El generador de imágenes no está configurado.', false);
   }
+  async run(): Promise<Buffer> {
+    throw new ComfyError('El generador de imágenes no está configurado.', false);
+  }
   hasWorkflow(): boolean {
     return false;
+  }
+  workflowModel(): string | null {
+    return null;
   }
 }
 
@@ -98,12 +96,6 @@ export class ComfyGenerator implements ImageGenerator {
     };
   }
 
-  async studio(input: StudioInput): Promise<Buffer> {
-    const name = await this.client.uploadImage(input.cutoutPng, `dressit-studio-${input.seed}.png`);
-    const wf = fillWorkflow(loadWorkflow(this.studioWorkflow), { INPUT_IMAGE: name, DESCRIPTION: input.description, SEED: input.seed });
-    return this.client.run(wf, this.timeoutMs);
-  }
-
   async avatar(input: AvatarInput): Promise<Buffer> {
     const [face, body, board] = await Promise.all([
       this.client.uploadImage(input.face, `dressit-face-${input.seed}.jpg`),
@@ -120,8 +112,19 @@ export class ComfyGenerator implements ImageGenerator {
     return this.client.run(fillWorkflow(loadWorkflow(name), { ...names, DESCRIPTION: description, SEED: seed }), this.timeoutMs);
   }
 
+  async run(name: string, images: Record<string, Buffer>, values: Record<string, string | number>): Promise<Buffer> {
+    const names: Record<string, string> = {};
+    const tag = String(values.SEED ?? Date.now());
+    for (const [key, data] of Object.entries(images)) names[key] = await this.client.uploadImage(data, `dressit-${name}-${key.toLowerCase()}-${tag}.png`);
+    return this.client.run(fillWorkflow(loadWorkflow(name), { ...names, ...values }), this.timeoutMs);
+  }
+
   hasWorkflow(name: string): boolean {
     return workflowMeta(name) !== null;
+  }
+
+  workflowModel(name: string): string | null {
+    return workflowMeta(name)?.model ?? null;
   }
 
   modelFor(kind: 'studio' | 'avatar'): string | null {

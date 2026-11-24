@@ -8,7 +8,7 @@ import { deleteUserFiles } from '../images/service.ts';
 import { verifyUserPassword } from '../auth/service.ts';
 
 export const CONSENT_VERSION = '2026-11';
-const CONSENT_KINDS: ConsentKind[] = ['terms', 'privacy', 'photo_processing', 'location', 'calendar', 'email_import', 'ai_assistant_external', 'analytics', 'marketing', 'ai_image_generation', 'avatar'];
+const CONSENT_KINDS: ConsentKind[] = ['terms', 'privacy', 'photo_processing', 'location', 'calendar', 'email_import', 'ai_assistant_external', 'analytics', 'marketing', 'ai_image_generation', 'avatar', 'visual_search_external'];
 
 export async function getPreferences(trx: Tx, userId: string): Promise<PreferencesDto> {
   let p = await trx.selectFrom('user_preferences').selectAll().where('user_id', '=', userId).executeTakeFirst();
@@ -80,6 +80,8 @@ export async function setConsent(trx: Tx, userId: string, kind: ConsentKind, gra
   await audit(trx, userId, granted ? 'consent.granted' : 'consent.revoked', { type: 'consent', id: kind });
   if (kind === 'calendar' && !granted) await trx.deleteFrom('calendar_events').where('source', '=', 'device').execute();
   if (kind === 'location' && !granted) await trx.updateTable('users').set({ location_lat: null, location_lon: null, location_name: null }).where('id', '=', userId).execute();
+  // No more photos go to external search services, and what they answered is forgotten.
+  if (kind === 'visual_search_external' && !granted) await trx.deleteFrom('visual_search_cache').execute();
   return { kind, granted: row.granted, version: row.version, updatedAt: row.created_at.toISOString() };
 }
 
@@ -104,6 +106,7 @@ export async function exportData(trx: Tx, userId: string): Promise<Record<string
     'tags', 'garment_tags', 'import_sources', 'import_jobs', 'import_detections', 'imported_products', 'outfits', 'outfit_items', 'outfit_ratings',
     'outfit_usage_history', 'calendar_events', 'outfit_plans', 'trips', 'trip_items', 'wishlists', 'wishlist_items', 'purchases',
     'recommendation_events', 'assistant_messages', 'audit_events', 'avatar_profiles', 'generation_jobs',
+    'catalog_photo_jobs', 'external_api_usage',
   ] as const;
   const out: Record<string, unknown> = {
     exportedAt: new Date().toISOString(),

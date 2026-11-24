@@ -256,9 +256,17 @@ export async function runSequential(
   jobId: string,
   base: { imageId: string; data: Buffer },
   pieces: OutfitPiece[],
-): Promise<{ imageId: string; data: Buffer; reused: number; total: number }> {
+): Promise<{ imageId: string; data: Buffer; reused: number; total: number; tried: OutfitPiece[]; notes: string[] }> {
   if (!ctx.tryon) throw new ComfyError('El probador virtual no está configurado.', false);
-  const { clothes, extras } = sequentialPlan(pieces);
+  const plan = sequentialPlan(pieces);
+  const { clothes } = plan;
+  let { extras } = plan;
+  const notes: string[] = [];
+  // Shoes need feet in the avatar photo; otherwise the generator would graft them onto the shins.
+  if (extras.some((e) => e.slot === 'footwear') && ((await ctx.tryon.parse(base.data)).feet?.area ?? 0) < 0.001) {
+    extras = extras.filter((e) => e.slot !== 'footwear');
+    notes.push('Tu foto de avatar no muestra los pies, así que el calzado no se ha probado.');
+  }
   const total = clothes.length + (extras.length ? 1 : 0);
   let current = base;
   let reused = 0;
@@ -298,7 +306,7 @@ export async function runSequential(
       current = { imageId: await remember(ctx, userId, key, out, 'Qwen-Image-Edit-2511'), data: out };
     }
   }
-  return { ...current, reused, total };
+  return { ...current, reused, total, tried: [...clothes, ...extras], notes };
 }
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,46 @@ export interface DetailFidelity {
   reasons: string[];
 }
 
+/** `POST /v1/catalog/check` (services/vision/app/pipeline/catalog_check.py). */
+export interface CatalogCheckResult {
+  presentation: {
+    background_l: number;
+    background_l_std: number;
+    background_chroma: number;
+    margin: number;
+    extent: number;
+    symmetry: number | null;
+    tilt: number | null;
+    components: number;
+    neat: number;
+    worn: number;
+    passed: boolean;
+    reasons: string[];
+    codes: string[];
+  };
+  fidelity: {
+    similarity: number;
+    category: string | null;
+    subcategory: string | null;
+    same_category: boolean;
+    pattern: string | null;
+    reference_pattern: string | null;
+    palette_emd: number;
+    lightness_shift: number;
+    missing_colors: string[];
+    extra_colors: string[];
+    texture_chi2: number;
+    reference_text: string | null;
+    candidate_text: string | null;
+    text_match: number | null;
+    passed: boolean;
+    reasons: string[];
+    codes: string[];
+  };
+  bbox: number[];
+  cutout_png_base64: string | null;
+}
+
 export interface VisionAnalysis {
   image: { width: number; height: number; sha256: string; phash: string | null; exif_transposed?: boolean };
   items: VisionItem[];
@@ -118,6 +158,21 @@ export class VisionClient {
     fd.append('reference', new Blob([new Uint8Array(reference)], { type: 'image/png' }), 'reference.png');
     fd.append('candidate', new Blob([new Uint8Array(candidate)], { type: 'image/png' }), 'candidate.png');
     return this.post('/v1/compare', fd);
+  }
+
+  /**
+   * Catalogue photo check: is `candidate` (AI packshot or official store photo) a professional
+   * product photo, and the same garment as `reference` (the real cutout)? Pose-independent.
+   */
+  catalogCheck(reference: Buffer, candidate: Buffer, opts: { kind: 'generated' | 'official'; category?: string | null; subcategory?: string | null; ocr?: boolean }): Promise<CatalogCheckResult> {
+    const fd = new FormData();
+    fd.append('reference', new Blob([new Uint8Array(reference)], { type: 'image/png' }), 'reference.png');
+    fd.append('candidate', new Blob([new Uint8Array(candidate)]), 'candidate');
+    fd.append('kind', opts.kind);
+    if (opts.category) fd.append('category', opts.category);
+    if (opts.subcategory) fd.append('subcategory', opts.subcategory);
+    if (opts.ocr) fd.append('ocr', 'true');
+    return this.post('/v1/catalog/check', fd);
   }
 
   /**

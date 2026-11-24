@@ -118,6 +118,34 @@ export interface CalendarEvents {
   user_id: string;
 }
 
+export interface CatalogPhotoJobs {
+  attempts: Generated<number>;
+  bbox: Json | null;
+  candidates: Generated<Json>;
+  choice: string | null;
+  cost_cents: Generated<Numeric>;
+  created_at: Generated<Timestamp>;
+  cutout_image_id: string | null;
+  detection_id: string | null;
+  error: string | null;
+  finished_at: Timestamp | null;
+  garment_id: string | null;
+  generated_image_id: string | null;
+  generation: Generated<Json>;
+  id: Generated<string>;
+  message: string | null;
+  mode: Generated<string>;
+  official_image_id: string | null;
+  official_match_id: string | null;
+  search: Generated<Json>;
+  source_image_id: string;
+  stage: Json | null;
+  status: Generated<string>;
+  trigger: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface CatalogProducts {
   audience: string | null;
   brand: string | null;
@@ -165,6 +193,14 @@ export interface Consents {
   kind: string;
   user_id: string;
   version: string;
+}
+
+export interface ExternalApiUsage {
+  calls: Generated<number>;
+  cost_cents: Generated<Numeric>;
+  day: Generated<string>;
+  provider: string;
+  user_id: string;
 }
 
 export interface GarmentAttributes {
@@ -618,6 +654,14 @@ export interface Users {
   updated_at: Generated<Timestamp>;
 }
 
+export interface VisualSearchCache {
+  created_at: Generated<Timestamp>;
+  key: string;
+  provider: string;
+  response: Json;
+  user_id: string;
+}
+
 export interface Wardrobes {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
@@ -674,9 +718,11 @@ export interface DB {
   avatar_bases: AvatarBases;
   avatar_profiles: AvatarProfiles;
   calendar_events: CalendarEvents;
+  catalog_photo_jobs: CatalogPhotoJobs;
   catalog_products: CatalogProducts;
   catalog_sync_runs: CatalogSyncRuns;
   consents: Consents;
+  external_api_usage: ExternalApiUsage;
   garment_attributes: GarmentAttributes;
   garment_availability: GarmentAvailability;
   garment_embeddings: GarmentEmbeddings;
@@ -710,6 +756,7 @@ export interface DB {
   tryon_cache: TryonCache;
   user_preferences: UserPreferences;
   users: Users;
+  visual_search_cache: VisualSearchCache;
   wardrobe_spaces: WardrobeSpaces;
   wardrobes: Wardrobes;
   weather_snapshots: WeatherSnapshots;

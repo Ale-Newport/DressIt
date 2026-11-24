@@ -2,7 +2,7 @@
 
 Output: services/api/src/modules/imagegen/workflows/<name>.json (+ <name>.meta.json).
 Placeholders filled at run time by the API: {{INPUT_IMAGE}}, {{FACE_IMAGE}}, {{BODY_IMAGE}},
-{{OUTFIT_IMAGE}}, {{DESCRIPTION}}, {{SEED}}.
+{{OUTFIT_IMAGE}}, {{DESCRIPTION}}, {{PROMPT}}, {{SEED}}, {{WIDTH}}, {{HEIGHT}}.
 
 Graphs follow ComfyUI's official templates (image_qwen_image_edit_2511, image_flux2_klein_image_edit_4b_distilled)
 with GGUF loaders (ComfyUI-GGUF) instead of fp8 safetensors (fp8 doesn't run on Apple Silicon).
@@ -13,12 +13,6 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parents[2] / "api" / "src" / "modules" / "imagegen" / "workflows"
 
-STUDIO_PROMPT = (
-    "Make this a professional studio product photo of the {{DESCRIPTION}}: pure white seamless background, soft even "
-    "studio lighting, garment centred and fully visible. Do not change the garment at all: keep every detail identical, "
-    "including the exact number, colour and position of buttons, the knit or fabric texture of every part, sleeves, "
-    "collar, hems, labels, prints and logos. Only remove hangers, pegs, mannequins, people and the background."
-)
 AVATAR_PROMPT = (
     "Photorealistic full-body photo of the person in image 1 wearing exactly the clothes shown in image 2 "
     "({{DESCRIPTION}}), replacing the clothes they are wearing. Dress them in every garment of image 2, including any "
@@ -42,8 +36,10 @@ ANGLES_LORA = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
 VIEW_PROMPT = "<sks> {{DESCRIPTION}} eye-level shot wide shot"
 
 
-def qwen(images: list[str], prompt: str, prefix: str, extra_lora: str | None = None) -> dict:
-    """Qwen-Image-Edit-2511 + Lightning 4-step LoRA. images[0] sets the output size."""
+def qwen(images: list[str], prompt: str, prefix: str, extra_lora: str | None = None, canvas: bool = False) -> dict:
+    """Qwen-Image-Edit-2511 + Lightning 4-step LoRA. images[0] sets the output size, unless
+    ``canvas``: then the output is an empty {{WIDTH}}×{{HEIGHT}} latent (a packshot does not keep
+    the framing of the home photo)."""
     wf: dict = {
         "1": {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": QWEN["unet"]}},
         "2": {"class_type": "CLIPLoaderGGUF", "inputs": {"clip_name": QWEN["clip"], "type": "qwen_image"}},
@@ -65,7 +61,10 @@ def qwen(images: list[str], prompt: str, prefix: str, extra_lora: str | None = N
     wf["21"] = {"class_type": "TextEncodeQwenImageEditPlus", "inputs": {"clip": ["2", 0], "prompt": "", "vae": ["3", 0], **enc}}
     wf["22"] = {"class_type": "FluxKontextMultiReferenceLatentMethod", "inputs": {"conditioning": ["20", 0], "reference_latents_method": "index_timestep_zero"}}
     wf["23"] = {"class_type": "FluxKontextMultiReferenceLatentMethod", "inputs": {"conditioning": ["21", 0], "reference_latents_method": "index_timestep_zero"}}
-    wf["24"] = {"class_type": "VAEEncode", "inputs": {"pixels": [refs[0], 0], "vae": ["3", 0]}}
+    if canvas:
+        wf["24"] = {"class_type": "EmptySD3LatentImage", "inputs": {"width": "{{WIDTH}}", "height": "{{HEIGHT}}", "batch_size": 1}}
+    else:
+        wf["24"] = {"class_type": "VAEEncode", "inputs": {"pixels": [refs[0], 0], "vae": ["3", 0]}}
     wf["25"] = {
         "class_type": "KSampler",
         "inputs": {"model": ["6", 0], "seed": "{{SEED}}", "steps": 4, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple",
@@ -120,17 +119,21 @@ ACCESSORIES_PROMPT = (
     "background and the lighting identical to image 1."
 )
 
+# Catalogue packshot: the whole instruction is built by the API per garment (services/api/src/
+# modules/catalog-photo/prompt.ts) from the owner's base prompt + per-category instructions.
+PACKSHOT_PROMPT = "{{PROMPT}}"
+
 QWEN_META = {"model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos", "license": "Apache-2.0"}
 KLEIN_META = {"model": "FLUX.2 klein 4B (Q8_0)", "license": "Apache-2.0"}
 
 WORKFLOWS = {
-    "studio": (qwen(["{{INPUT_IMAGE}}"], STUDIO_PROMPT, "dressit_studio"), QWEN_META),
+    # Catalogue photo: re-arranges the garment of the photo into a flat lay / ghost mannequin packshot.
+    "packshot": (qwen(["{{INPUT_IMAGE}}"], PACKSHOT_PROMPT, "dressit_packshot", canvas=True), QWEN_META),
     "avatar": (qwen(["{{BODY_IMAGE}}", "{{OUTFIT_IMAGE}}", "{{FACE_IMAGE}}"], AVATAR_PROMPT, "dressit_avatar"), QWEN_META),
     # Last step of the sequential try-on: shoes and accessories (FASHN only dresses tops/bottoms/one-pieces).
     "tryon-accessories": (qwen(["{{BODY_IMAGE}}", "{{OUTFIT_IMAGE}}"], ACCESSORIES_PROMPT, "dressit_tryon_accessories"), QWEN_META),
     # Persistent avatar: another camera view of the user's studio avatar (fal Multiple-Angles LoRA, Apache-2.0).
     "avatar-view": (qwen(["{{BODY_IMAGE}}"], VIEW_PROMPT, "dressit_avatar_view", ANGLES_LORA), {"model": "Qwen-Image-Edit-2511 + Multiple-Angles LoRA", "license": "Apache-2.0"}),
-    "studio-fast": (klein(["{{INPUT_IMAGE}}"], STUDIO_PROMPT.replace("this photo", "image 1"), "dressit_studio_fast"), KLEIN_META),
     "avatar-fast": (klein(["{{BODY_IMAGE}}", "{{OUTFIT_IMAGE}}", "{{FACE_IMAGE}}"], AVATAR_PROMPT, "dressit_avatar_fast"), KLEIN_META),
 }
 

@@ -131,7 +131,9 @@ export type ConsentKind =
   /** Generate studio-style photos of the user's garments with an image model (our servers). */
   | 'ai_image_generation'
   /** Keep a face and a full-body photo of the user to render them wearing their outfits. */
-  | 'avatar';
+  | 'avatar'
+  /** Send garment photos to external reverse image search (Google Lens, Cloud Vision, Lykdat) to find the official photo. */
+  | 'visual_search_external';
 
 /** `PUT /v1/me/consents/:kind`. Terms/privacy cannot be revoked (delete the account instead). */
 export interface ConsentDto {
@@ -385,6 +387,8 @@ export interface DetectionDto {
   };
   duplicate: { garmentId: string; score: number; kind: 'exact_photo' | 'near_photo' | 'similar_garment' } | null;
   warnings: string[];
+  /** Catalogue photo being prepared for this detection (official photo or AI packshot). */
+  catalogPhoto?: CatalogPhotoSummaryDto | null;
 }
 
 export interface ImportJobDto {
@@ -1091,6 +1095,8 @@ export interface FidelityDto {
   passed: boolean;
   /** Spanish explanation when it did not pass. */
   reason: string | null;
+  /** Spanish notes on what could not be tried (e.g. shoes when the avatar photo shows no feet). */
+  notes?: string[];
 }
 
 /** `POST /v1/garments/:id/studio`, `POST /v1/outfits/:id/avatar`, `GET /v1/generations/:id`. */
@@ -1124,4 +1130,133 @@ export interface GenerationServiceStatusDto {
   /** Spanish explanation when unavailable. */
   reason: string | null;
   models: { studio: string | null; avatar: string | null };
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue photo: official store photo (reverse image search) or AI packshot
+// ---------------------------------------------------------------------------
+
+export type CatalogPhotoStatus = 'queued' | 'searching' | 'generating' | 'ready' | 'needs_user' | 'failed' | 'confirmed' | 'dismissed';
+export type CatalogSearchProviderId = 'serpapi_lens' | 'cloud_vision' | 'lykdat' | 'catalog';
+export type CatalogGeneratorId = 'fashn' | 'fal' | 'comfy';
+/** How a store photo may be used: licensed (copied, from an authorised feed), link_preview (shown by
+ *  reference from the store, never copied, only to the owner) or reference_only (identifies the product). */
+export type OfficialPhotoUsage = 'licensed' | 'link_preview' | 'reference_only';
+
+/** A product found for the user's garment and checked against it. */
+export interface CatalogMatchDto {
+  id: string;
+  provider: CatalogSearchProviderId;
+  /** exact: verified same product (same type and colours, very close appearance and independent
+   *  evidence: brand/reference text, exact image or several sources agree); possible: the user decides. */
+  verdict: 'exact' | 'possible';
+  title: string | null;
+  brand: string | null;
+  retailer: string | null;
+  domain: string | null;
+  pageUrl: string | null;
+  imageUrl: string;
+  price: MoneyDto | null;
+  similarity: number;
+  /** Evidence for the verdict, in Spanish ("Mismo texto en la etiqueta", "Lo encuentran 2 buscadores"…). */
+  evidence: string[];
+  /** Why it is not considered exact, in Spanish. */
+  doubts: string[];
+  usage: OfficialPhotoUsage;
+  /** The photo looks like a catalogue photo (neutral background, garment alone, whole). */
+  studioLike: boolean;
+}
+
+export interface CatalogCheckDto {
+  passed: boolean;
+  presentationPassed: boolean;
+  fidelityPassed: boolean;
+  similarity: number;
+  symmetry: number | null;
+  neat: number;
+  paletteDeltaE: number;
+  textMatch: number | null;
+  /** Spanish reasons when it did not pass. */
+  reasons: string[];
+}
+
+export interface CatalogAttemptDto {
+  n: number;
+  provider: CatalogGeneratorId;
+  model: string;
+  ms: number;
+  check: CatalogCheckDto | null;
+  error: string | null;
+}
+
+export interface CatalogProviderStateDto {
+  id: CatalogSearchProviderId | CatalogGeneratorId;
+  label: string;
+  status: 'ok' | 'no_results' | 'cached' | 'skipped' | 'error' | 'not_configured' | 'limit' | 'no_consent';
+  message: string | null;
+}
+
+/** `GET /v1/catalog-photos/:id`, `GET /v1/garments/:id/catalog-photo`. */
+export interface CatalogPhotoDto {
+  id: string;
+  garmentId: string | null;
+  detectionId: string | null;
+  status: CatalogPhotoStatus;
+  stage: { step: number; total: number; label: string } | null;
+  /** The user's own photo of the garment (its cutout). Always kept. */
+  original: ImageRefDto | null;
+  /** Verified official photo of the same product, when one was found. */
+  official: CatalogMatchDto | null;
+  /** Possible matches the user can confirm (never chosen automatically). */
+  alternatives: CatalogMatchDto[];
+  /** AI packshot made from the user's photo (labelled as generated). */
+  generated: ImageRefDto | null;
+  generatedCheck: CatalogCheckDto | null;
+  attempts: CatalogAttemptDto[];
+  providers: CatalogProviderStateDto[];
+  /** Brand / text read on the garment (labels, logos) and used in the search. */
+  recognised: { brand: string | null; text: string | null; reference: string | null };
+  choice: 'official' | 'generated' | 'original' | null;
+  /** Spanish: what happened and what the user can do. */
+  message: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface CatalogPhotoSummaryDto {
+  id: string;
+  status: CatalogPhotoStatus;
+  stage: { step: number; total: number; label: string } | null;
+  official: { imageUrl: string; retailer: string | null; verdict: 'exact' | 'possible' } | null;
+  generated: ImageRefDto | null;
+  generatedPassed: boolean;
+  choice: 'official' | 'generated' | 'original' | null;
+  message: string | null;
+}
+
+/** `POST /v1/garments/:id/catalog-photo`. */
+export interface CatalogPhotoRequest {
+  /** auto: search, generate only if no usable official photo; search / generate: only that step. */
+  mode?: 'auto' | 'search' | 'generate';
+  /** Generate even if the photo looks insufficient (garment cut by the frame). */
+  force?: boolean;
+}
+
+/** `POST /v1/catalog-photos/:id/choose`. */
+export interface CatalogPhotoChoiceRequest {
+  choice: 'official' | 'generated' | 'original';
+  /** Which match (official or an alternative) when choice = official. */
+  matchId?: string;
+  /** Use a generated packshot that did not pass every check (the user saw the reasons). */
+  acceptWarnings?: boolean;
+}
+
+/** `GET /v1/catalog-photos/status`: what is configured on this server (no secrets). */
+export interface CatalogPhotoServiceStatusDto {
+  auto: boolean;
+  search: Array<{ id: CatalogSearchProviderId; label: string; configured: boolean; missing: string[] }>;
+  generation: Array<{ id: CatalogGeneratorId; label: string; model: string; configured: boolean; available: boolean; missing: string[] }>;
+  webImages: 'link_preview' | 'none';
+  limits: { searchesPerDay: number; generationsPerDay: number; monthlyBudgetCents: number; maxAttempts: number };
 }

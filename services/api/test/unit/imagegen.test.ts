@@ -1,31 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { fillWorkflow, loadWorkflow } from '../../src/modules/imagegen/comfy.ts';
-import { avatarFidelity, cosine, studioFidelity } from '../../src/modules/imagegen/service.ts';
+import { ComfyClient, fillWorkflow, loadWorkflow } from '../../src/modules/imagegen/comfy.ts';
+import { avatarFidelity, cosine } from '../../src/modules/imagegen/service.ts';
 import { maskFor, sequentialPlan, stepKey, wornFidelity } from '../../src/modules/imagegen/avatar.ts';
 
 const unit = (i: number, n = 8) => Array.from({ length: n }, (_, k) => (k === i ? 1 : 0));
-const mix = (a: number[], b: number[], t: number) => a.map((x, i) => x * (1 - t) + b[i]! * t);
-
-describe('studio fidelity gate', () => {
-  const limits = { minSimilarity: 0.85, maxDeltaE: 12 };
-  const garment = { embedding: unit(0), colorHex: '#c5a996', subcategory: 'jersey_grueso' };
-  it('accepts the same garment with a close colour', () => {
-    // Real measurement: cardigan photo vs its Qwen studio photo → cosine 0.966, beige #cbab97 vs #c5a996.
-    const f = studioFidelity({ embedding: mix(unit(0), unit(1), 0.2), colorHex: '#cbab97', subcategory: 'jersey_grueso' }, garment, limits);
-    expect(f.passed).toBe(true);
-    expect(f.colorDeltaE).toBeLessThan(3);
-  });
-  it('rejects a different-looking garment, a changed colour or another type', () => {
-    expect(studioFidelity({ embedding: mix(unit(0), unit(1), 0.6), colorHex: '#c5a996', subcategory: 'jersey_grueso' }, garment, limits)).toMatchObject({ passed: false, reason: expect.stringMatching(/no se parece/) });
-    expect(studioFidelity({ embedding: unit(0), colorHex: '#1d3b8f', subcategory: 'jersey_grueso' }, garment, limits)).toMatchObject({ passed: false, reason: expect.stringMatching(/color/) });
-    expect(studioFidelity({ embedding: unit(0), colorHex: '#c5a996', subcategory: 'vaquero' }, garment, limits)).toMatchObject({ passed: false, reason: expect.stringMatching(/otro tipo/) });
-    expect(studioFidelity({ embedding: null, colorHex: null, subcategory: null }, garment, limits).passed).toBe(false);
-  });
-  it('accepts a type the classifier abstained on or a sibling of the same category', () => {
-    expect(studioFidelity({ embedding: unit(0), colorHex: '#c5a996', subcategory: null }, garment, limits).passed).toBe(true);
-    expect(studioFidelity({ embedding: unit(0), colorHex: '#c5a996', subcategory: 'cardigan' }, garment, limits).passed).toBe(true);
-  });
-});
 
 describe('avatar fidelity gate', () => {
   it('needs every garment to be found in the render', () => {
@@ -37,9 +15,9 @@ describe('avatar fidelity gate', () => {
 });
 
 describe('ComfyUI workflows', () => {
-  for (const name of ['studio', 'studio-fast', 'avatar', 'avatar-fast']) {
+  for (const name of ['packshot', 'avatar', 'avatar-fast']) {
     it(`${name}: fills every placeholder with the right types`, () => {
-      const values = { INPUT_IMAGE: 'in.png', FACE_IMAGE: 'f.jpg', BODY_IMAGE: 'b.jpg', OUTFIT_IMAGE: 'o.png', DESCRIPTION: 'jersey, camel', SEED: 42 };
+      const values = { INPUT_IMAGE: 'in.png', FACE_IMAGE: 'f.jpg', BODY_IMAGE: 'b.jpg', OUTFIT_IMAGE: 'o.png', DESCRIPTION: 'jersey, camel', PROMPT: 'Transform…', SEED: 42, WIDTH: 896, HEIGHT: 1120 };
       const wf = fillWorkflow(loadWorkflow(name), values);
       const json = JSON.stringify(wf);
       expect(json).not.toMatch(/\{\{/);
@@ -51,7 +29,7 @@ describe('ComfyUI workflows', () => {
     });
   }
   it('refuses missing values and unsafe names', () => {
-    expect(() => fillWorkflow(loadWorkflow('studio'), { INPUT_IMAGE: 'x' })).toThrow(/Faltan valores/);
+    expect(() => fillWorkflow(loadWorkflow('packshot'), { INPUT_IMAGE: 'x' })).toThrow(/Faltan valores/);
     expect(() => loadWorkflow('../secrets')).toThrow();
   });
 });
@@ -64,22 +42,6 @@ describe('what the avatar shows', () => {
     expect(shown.map((i) => i.slot)).toEqual(['outer', 'bottom', 'footwear', 'accessory:head']);
     expect(layered.map((i) => i.slot)).toEqual(['mid', 'base']);
     expect(visibleForAvatar([{ slot: 'one_piece' }, { slot: 'footwear' }]).shown.map((i) => i.slot)).toEqual(['one_piece', 'footwear']);
-  });
-});
-
-describe('studio detail gate', () => {
-  const detail = (over: Record<string, unknown> = {}) => ({ shape_iou: 0.97, mean_delta_e: 1.8, p90_delta_e: 2.8, max_cell_delta_e: 6.4, ssim: 0.75, cells: 60, passed: true, reasons: [], ...over });
-  it('passes a faithful photo and reports the measures', async () => {
-    const { studioDetailFidelity } = await import('../../src/modules/imagegen/service.ts');
-    expect(studioDetailFidelity(detail(), { generated: 'jersey_grueso', garment: 'jersey_grueso' }, 0.97)).toMatchObject({ passed: true, detail: { ssim: 0.75, maxCellDeltaE: 6.4 } });
-  });
-  it('rejects with the comparator’s reasons (the cardigan with changed buttons) or another type', async () => {
-    const { studioDetailFidelity } = await import('../../src/modules/imagegen/service.ts');
-    // Real measurement of the first Qwen attempt: max cell ΔE 21.2, SSIM 0.19, global similarity 0.966.
-    const bad = studioDetailFidelity(detail({ max_cell_delta_e: 21.2, ssim: 0.19, passed: false, reasons: ['Ha cambiado el color de alguna zona (botones, bolsillos, estampado…).', 'Ha cambiado la textura o el dibujo del tejido.'] }), { generated: 'jersey_grueso', garment: 'jersey_grueso' }, 0.966);
-    expect(bad.passed).toBe(false);
-    expect(bad.reason).toMatch(/botones.*textura/);
-    expect(studioDetailFidelity(detail(), { generated: 'vaquero', garment: 'jersey_grueso' }, 0.9).reason).toMatch(/otro tipo/);
   });
 });
 
@@ -120,5 +82,31 @@ describe('sequential try-on', () => {
     expect(wornFidelity([ok, { ...ok, label: 'vaquero', found: false, similarity: null, deltaE: null }], limits)).toMatchObject({ passed: false, reason: 'No se ve vaquero en la imagen generada.' });
     expect(wornFidelity([{ ...ok, deltaE: 22 }], limits).reason).toBe('La imagen generada no reproduce bien camiseta, azul marino.');
     expect(wornFidelity([{ ...ok, similarity: 0.4 }], limits).passed).toBe(false);
+  });
+});
+
+describe('ComfyUI client timeouts', () => {
+  const client = (running: string) => {
+    const calls: string[] = [];
+    const fetcher = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      const u = String(url);
+      calls.push(`${init.method ?? 'GET'} ${u.replace('http://comfy', '')}${init.body && u.endsWith('/queue') ? ` ${String(init.body)}` : ''}`);
+      if (u.endsWith('/prompt')) return new Response(JSON.stringify({ prompt_id: 'mine' }));
+      if (u.includes('/history/')) return new Response('{}');
+      if (u.endsWith('/queue') && (init.method ?? 'GET') === 'GET') return new Response(JSON.stringify({ queue_running: [[1, running]], queue_pending: [[2, 'mine']] }));
+      return new Response('{}');
+    }) as typeof fetch;
+    return { c: new ComfyClient('http://comfy', fetcher), calls };
+  };
+  it('takes its own queued prompt out of the queue, never interrupting someone else’s', async () => {
+    const { c, calls } = client('someone-else');
+    await expect(c.run({}, 30, 5)).rejects.toThrow(/demasiado/);
+    expect(calls).toContain('POST /queue {"delete":["mine"]}');
+    expect(calls.some((x) => x.includes('/interrupt'))).toBe(false);
+  });
+  it('interrupts only when its own prompt is the one running', async () => {
+    const { c, calls } = client('mine');
+    await expect(c.run({}, 30, 5)).rejects.toThrow(/demasiado/);
+    expect(calls).toContain('POST /interrupt');
   });
 });

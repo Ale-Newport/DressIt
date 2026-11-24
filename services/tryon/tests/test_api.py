@@ -86,3 +86,17 @@ def test_extras_region_only_lets_the_feet_change_for_shoes():
 def test_composite_rejects_unknown_regions():
     r = client.post("/v1/composite", files={"base": ("b.png", png(), "image/png"), "edited": ("e.png", png(), "image/png")}, data={"regions": "bag"})
     assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_regions"
+
+
+def test_no_shoes_when_the_photo_does_not_show_the_feet():
+    import numpy as np
+
+    from app.parsing import extras_region
+
+    labels = np.zeros((200, 100), np.int64)
+    labels[25:45, 40:60] = 3
+    labels[45:120, 30:70] = 23
+    labels[120:200, 35:65] = 13  # cropped at the knees: no feet
+    edited = labels.copy()
+    edited[185:198, 35:65] = 9  # the generator drew shoes anyway
+    assert not extras_region(labels, edited, "feet").any()

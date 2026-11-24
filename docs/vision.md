@@ -19,6 +19,7 @@ español. La API Node (`services/api`) es su único cliente. El servicio no guar
 | `POST /v1/analyze` | multipart `file` (JPEG, PNG o HEIC ≤ 15 MB), `mode=single|multi`, `max_items` (1–12, 8 por defecto), `normalize` (`true` por defecto; `false` no corrige blancos ni exposición: para fotos de estudio, que ya vienen corregidas). |
 | `POST /v1/segment/points` | Corrección manual: `file`, `points` (JSON `[[x, y, 1|0], …]` normalizados, 1 = prenda, 0 = no es prenda; máx. 20) y `box` opcional → `{cutout_png_base64, bbox, mask_area_ratio, colors}`. |
 | `POST /v1/matte` | Recorte de la persona (para las imágenes del avatar): `{png_base64, width, height, coverage}`. |
+| `POST /v1/catalog/check` | Foto de catálogo: `reference` (recorte RGBA de la prenda real), `candidate` (packshot generado u oficial), `kind=generated\|official`, `category`, `subcategory`, `ocr` → `{presentation:{background_l, background_l_std, background_chroma, margin, extent, symmetry, tilt, components, neat, worn, passed, reasons, codes}, fidelity:{similarity, category, same_category, pattern, palette_emd, lightness_shift, missing_colors, extra_colors, texture_chi2, text_match, passed, reasons, codes}, bbox, cutout_png_base64}`. Independiente de cómo esté colocada la prenda; ver [foto-catalogo.md](foto-catalogo.md#4-control-automático-presentación-y-fidelidad). |
 | `POST /v1/compare` | `reference` y `candidate` (recortes RGBA) → fidelidad de detalle: `{shape_iou, mean_delta_e, p90_delta_e, max_cell_delta_e, ssim, cells, passed, reasons[]}`. |
 | `POST /v1/embed/image` | Embedding de la imagen entera (fotos de catálogo). Con `segment=true` recorta antes la prenda principal, igual que `analyze`. |
 | `POST /v1/embed/text` | `{"texts": [...]}` en español o inglés → embeddings en el mismo espacio que las imágenes. Devuelve también `translated`, el texto inglés que se ha embebido. |
@@ -415,8 +416,10 @@ subcategoría y multi no cambian; estampado −1 foto (abstención), color princ
   están tras un formulario de acceso (SAM License, uso comercial permitido) que no se ha
   solicitado. Cuando se tenga acceso, sustituiría a Grounding DINO + SAM 2.1 en `multi` y a los
   puntos en la corrección manual. Se mantiene SAM 2.1 (Apache-2.0).
-- **Sin corrección de perspectiva** ni de iluminación generativa: la foto de estudio con IA
-  (ver [generacion-imagenes.md](generacion-imagenes.md)) es el camino para una imagen de catálogo.
+- **Sin corrección de perspectiva** ni de iluminación generativa en el recorte: la imagen de
+  catálogo (prenda extendida y colocada) es la foto oficial encontrada o el packshot generativo de
+  [foto-catalogo.md](foto-catalogo.md), que este servicio valida con `/v1/catalog/check`.
+  `/v1/compare` (misma silueta) ya no decide nada: rechazaba justo la recolocación de la prenda.
 
 ## 7. Privacidad
 

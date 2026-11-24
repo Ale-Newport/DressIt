@@ -14,6 +14,7 @@ REGIONS = {
     "lower": (13,),  # Lower_Clothing
     "shoes": (9, 18),  # Left_Shoe, Right_Shoe
     "face": (3, 4),  # Face_Neck, Hair
+    "feet": (5, 14, 9, 18, 10, 19),  # feet, shoes, socks: whether the photo shows the feet at all
 }
 
 
@@ -118,6 +119,10 @@ def extras_region(base: np.ndarray, edited: np.ndarray, region: str) -> np.ndarr
     top, bottom, left, right = ys.min(), ys.max(), xs.min(), xs.max()
     face = np.isin(base, FACE_NECK)
     if region == "feet":
+        # No feet in the photo (cropped at the knees): nothing to put shoes on. Pasting the
+        # generator's feet would graft them onto the shins.
+        if np.isin(base, FEET).mean() < 0.001:
+            return np.zeros((h, w), bool)
         return grow(np.isin(base, FEET) | np.isin(edited, FEET), 0.03)
     if region == "head":
         if not face.any():

@@ -17,6 +17,7 @@ import { BullJobQueue, InlineJobQueue, type JobQueue } from './jobs/queue.ts';
 import { createImageGenerator } from './modules/imagegen/generator.ts';
 import { TryonClient } from './modules/imagegen/tryon.ts';
 import { processGeneration } from './modules/imagegen/service.ts';
+import { createCatalogPhotoProviders, processCatalogPhoto } from './modules/catalog-photo/service.ts';
 import { processImageAnalysis } from './modules/imports/photo-pipeline.ts';
 import { VisionClient } from './modules/vision/client.ts';
 import { WeatherService } from './modules/weather/service.ts';
@@ -42,6 +43,7 @@ export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstan
   const { cfg } = opts;
   const { db, pool } = createDb(cfg.DATABASE_URL);
   const queue = opts.queue ?? (opts.inlineWorker ? new InlineJobQueue() : new BullJobQueue(cfg.REDIS_URL));
+  const imagegen = opts.overrides?.imagegen ?? createImageGenerator(cfg);
   const ctx: AppContext = {
     cfg,
     db,
@@ -52,13 +54,15 @@ export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstan
     weather: new WeatherService(db, cfg.OPEN_METEO_API_KEY),
     queue,
     catalog: createCatalogProviders(cfg),
-    imagegen: createImageGenerator(cfg),
+    imagegen,
     tryon: cfg.TRYON_SERVICE_URL ? new TryonClient(cfg.TRYON_SERVICE_URL, cfg.TRYON_TIMEOUT_MS) : null,
+    catalogPhoto: createCatalogPhotoProviders(cfg, imagegen),
     ...opts.overrides,
   };
   if (opts.inlineWorker) {
     await queue.startWorker((job, attempt) => processImageAnalysis(ctx, job, attempt));
     await queue.startGenerationWorker((job, attempt) => processGeneration(ctx, job, attempt));
+    await queue.startCatalogPhotoWorker((job, attempt) => processCatalogPhoto(ctx, job, attempt), cfg.CATALOG_PHOTO_CONCURRENCY);
   }
   await syncRetailers(ctx.db);
 

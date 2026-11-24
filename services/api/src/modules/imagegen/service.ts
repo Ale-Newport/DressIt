@@ -1,17 +1,13 @@
 /**
- * Generative images: studio photos of owned garments and renders of the user (avatar) wearing an
- * outfit. Both are opt-in (consents `ai_image_generation` and `avatar`), run asynchronously on the
- * generation queue and pass a fidelity gate before the user sees them:
+ * Generative renders of the user (avatar) wearing an outfit. Opt-in (consents `ai_image_generation`
+ * and `avatar`), run asynchronously on the generation queue and pass a fidelity gate before the
+ * user sees them: every garment of the outfit must be found in the render (best embedding match
+ * among the detected items), otherwise the render is rejected.
  *
- * - studio: the generated photo is analysed by the vision service like any upload; its embedding,
- *   main colour and type must match the real garment's, otherwise it is rejected (the model
- *   changed the garment) and nothing is stored;
- * - avatar: every garment of the outfit must be found in the render (best embedding match among
- *   the detected items), otherwise the render is rejected.
- *
+ * Product photos of single garments (official photo or AI packshot) live in ../catalog-photo.
  * Generated images are stored with `generated_by` so the app always labels them as AI-generated.
  */
-import { composeFlatLay, type AvatarBackground, type AvatarView, deltaE2000, getSubcategory, hexToLab, type AvatarProfileDto, type FidelityDto, type GenerationJobDto, type GenerationServiceStatusDto } from '@dressit/shared';
+import { composeFlatLay, type AvatarBackground, type AvatarView, getSubcategory, type AvatarProfileDto, type FidelityDto, type GenerationJobDto, type GenerationServiceStatusDto } from '@dressit/shared';
 import { sql } from 'kysely';
 import sharp from 'sharp';
 import type { AppContext } from '../../context.ts';
@@ -22,7 +18,6 @@ import { deleteUserFiles, storeGenerated } from '../images/service.ts';
 import { colorLabel } from './labels.ts';
 import { imageRef } from '../wardrobe/mappers.ts';
 import { ComfyError } from './generator.ts';
-import type { DetailFidelity } from '../vision/client.ts';
 import { checkWorn, createBase, failBase, listBases, runSequential, runViewJob, wornFidelity, type OutfitPiece } from './avatar.ts';
 
 /** Categories never rendered on a person (swimwear): avatars are always fully clothed. */
@@ -41,7 +36,7 @@ async function consentGranted(trx: Tx, kind: 'ai_image_generation' | 'avatar'): 
 
 async function requireConsent(trx: Tx, kind: 'ai_image_generation' | 'avatar') {
   if (!(await consentGranted(trx, kind))) {
-    throw badRequest(kind === 'avatar' ? 'Activa el consentimiento «Tu avatar» para usar tus fotos.' : 'Activa el consentimiento «Imágenes generadas con IA» para crear fotos de estudio.');
+    throw badRequest(kind === 'avatar' ? 'Activa el consentimiento «Tu avatar» para usar tus fotos.' : 'Activa el consentimiento «Imágenes generadas con IA» para crear imágenes con IA.');
   }
 }
 
@@ -62,45 +57,6 @@ export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
 }
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
-
-/**
- * Studio gate: the vision service's local comparison against the real cutout (shape on a rigid
- * fit, colour per zone of a 12×12 grid, texture SSIM) plus the type check. The global embedding
- * is reported but no longer decides: it accepted a cardigan whose buttons and sleeve knit had
- * changed (0.966). Calibration in docs/evidence/catalogo-2026-11-24.md.
- */
-export function studioDetailFidelity(
-  detail: DetailFidelity,
-  types: { generated: string | null; garment: string },
-  similarity: number,
-): FidelityDto {
-  const sameType = !types.generated || getSubcategory(types.generated)?.category === getSubcategory(types.garment)?.category;
-  const reasons = [...detail.reasons, ...(sameType ? [] : ['La imagen generada muestra otro tipo de prenda.'])];
-  return {
-    similarity: round3(similarity),
-    colorDeltaE: round3(detail.mean_delta_e),
-    detail: { shapeIou: detail.shape_iou, p90DeltaE: detail.p90_delta_e, maxCellDeltaE: detail.max_cell_delta_e, ssim: detail.ssim },
-    passed: reasons.length === 0,
-    reason: reasons.length ? `La foto generada no es fiel a tu prenda: ${reasons.map((r) => r.charAt(0).toLowerCase() + r.slice(1)).join(' ')}` : null,
-  };
-}
-
-/** Coarse check (embedding + main colour + type); kept for callers without a cutout to compare. */
-export function studioFidelity(
-  generated: { embedding: number[] | null; colorHex: string | null; subcategory: string | null },
-  garment: { embedding: number[] | null; colorHex: string | null; subcategory: string },
-  limits: { minSimilarity: number; maxDeltaE: number },
-): FidelityDto {
-  const similarity = generated.embedding && garment.embedding ? cosine(generated.embedding, garment.embedding) : 0;
-  const colorDeltaE = generated.colorHex && garment.colorHex ? deltaE2000(hexToLab(generated.colorHex), hexToLab(garment.colorHex)) : 99;
-  const sameType = !generated.subcategory || getSubcategory(generated.subcategory)?.category === getSubcategory(garment.subcategory)?.category;
-  let reason: string | null = null;
-  if (!generated.embedding) reason = 'No se ha podido analizar la imagen generada.';
-  else if (similarity < limits.minSimilarity) reason = 'La imagen generada no se parece lo suficiente a tu prenda.';
-  else if (colorDeltaE > limits.maxDeltaE) reason = 'La imagen generada ha cambiado el color de tu prenda.';
-  else if (!sameType) reason = 'La imagen generada muestra otro tipo de prenda.';
-  return { similarity: round3(similarity), colorDeltaE: round3(colorDeltaE), passed: reason === null, reason };
-}
 
 /** Are all the outfit's garments visible in the avatar render? Mean of each garment's best match. */
 export function avatarFidelity(detected: number[][], garments: number[][], minSimilarity: number): FidelityDto {
@@ -172,22 +128,6 @@ async function garmentCutout(trx: Tx, garmentId: string) {
   return { garment: g, cutout: cutout ?? null };
 }
 
-async function ensureAvailable(ctx: AppContext, kind: 'studio' | 'avatar') {
-  const info = await ctx.imagegen.info();
-  if (!info[kind]) throw unavailable(info.reason ?? 'La generación de imágenes no está disponible ahora mismo.');
-  return info.models[kind];
-}
-
-export async function createStudioJob(ctx: AppContext, trx: Tx, userId: string, garmentId: string): Promise<string> {
-  await requireConsent(trx, 'ai_image_generation');
-  const { cutout } = await garmentCutout(trx, garmentId);
-  if (!cutout) throw badRequest('Esta prenda no tiene una foto recortada. Añade una foto de la prenda primero.');
-  const model = await ensureAvailable(ctx, 'studio');
-  const busy = await trx.selectFrom('generation_jobs').select('id').where('garment_id', '=', garmentId).where('status', 'in', ['queued', 'running']).executeTakeFirst();
-  if (busy) return busy.id;
-  const row = await trx.insertInto('generation_jobs').values({ user_id: userId, kind: 'studio', garment_id: garmentId, model, input: JSON.stringify({ cutoutImageId: cutout.id }) }).returning('id').executeTakeFirstOrThrow();
-  return row.id;
-}
 
 export async function createAvatarJob(ctx: AppContext, trx: Tx, userId: string, outfitId: string, opts: { baseId?: string; method?: 'sequential' | 'joint' } = {}): Promise<string> {
   await requireConsent(trx, 'ai_image_generation');
@@ -305,8 +245,7 @@ export async function processGeneration(ctx: AppContext, job: GenerationJob, att
   if (!row) return;
   const seed = Math.floor(Math.random() * 2 ** 31);
   try {
-    if (row.kind === 'studio') await runStudio(ctx, job.userId, row, seed);
-    else if (row.kind === 'avatar_view') {
+    if (row.kind === 'avatar_view') {
       const { imageId } = await runViewJob(ctx, job.userId, row, seed);
       await finish(ctx, job.userId, row.id, { status: 'done', result_image_id: imageId });
     } else if (row.method === 'sequential') await runAvatarSequential(ctx, job.userId, row);
@@ -321,39 +260,6 @@ export async function processGeneration(ctx: AppContext, job: GenerationJob, att
     if (row.kind === 'avatar_view') await failBase(ctx, job.userId, row.avatar_base_id, error);
     await finish(ctx, job.userId, row.id, { status: 'failed', error });
   }
-}
-
-async function runStudio(ctx: AppContext, userId: string, row: NonNullable<JobRow>, seed: number) {
-  const { garment, cutout, embedding } = await withUser(ctx.db, userId, async (trx) => {
-    const { garment, cutout } = await garmentCutout(trx, row.garment_id!);
-    const emb = await trx.selectFrom('garment_embeddings').select(sqlEmbedding).where('garment_id', '=', row.garment_id!).executeTakeFirst();
-    return { garment, cutout, embedding: parseVector(emb?.embedding_text ?? null) };
-  });
-  if (!cutout) throw new ComfyError('La prenda ya no tiene foto recortada.', false);
-  const png = await ctx.storage.get(cutout.storage_key);
-  if (!png) throw new ComfyError('No se encuentra la foto recortada de la prenda.', false);
-  // ComfyUI's LoadImage drops alpha (the hidden background would reappear): send it on white.
-  const onWhite = await sharp(png).flatten({ background: '#ffffff' }).extend({ top: 48, bottom: 48, left: 48, right: 48, background: '#ffffff' }).png().toBuffer();
-  const generated = await ctx.imagegen.studio({ cutoutPng: onWhite, description: describe(garment), seed });
-  // Re-cut and analyse the result exactly like a user photo.
-  const analysis = await ctx.vision.analyze(generated, 'image/png', 'single', 1, { normalize: false });
-  const item = analysis.items[0];
-  if (!item?.cutout_png_base64) {
-    await finish(ctx, userId, row.id, { status: 'rejected', error: 'No se ha podido recortar la imagen generada.' });
-    return;
-  }
-  const generatedCutout = Buffer.from(item.cutout_png_base64, 'base64');
-  const detail = await ctx.vision.compare(png, generatedCutout);
-  const similarity = item.embedding?.length && embedding ? cosine(item.embedding, embedding) : 0;
-  const fidelity = studioDetailFidelity(detail, { generated: item.subcategory?.value ?? null, garment: garment.subcategory }, similarity);
-  if (!fidelity.passed) {
-    await finish(ctx, userId, row.id, { status: 'rejected', error: fidelity.reason, fidelity });
-    return;
-  }
-  const imageId = await withUser(ctx.db, userId, (trx) =>
-    storeGenerated(ctx, trx, userId, generatedCutout, 'studio', { model: row.model ?? 'desconocido', garmentId: garment.id, parentImageId: cutout.id }),
-  );
-  await finish(ctx, userId, row.id, { status: 'done', fidelity, result_image_id: imageId });
 }
 
 async function runAvatar(ctx: AppContext, userId: string, row: NonNullable<JobRow>, seed: number) {
@@ -413,8 +319,10 @@ async function runAvatarSequential(ctx: AppContext, userId: string, row: NonNull
   const withExtras = ctx.imagegen.hasWorkflow('tryon-accessories') && (await ctx.imagegen.info()).available;
   const usable = withExtras ? pieces : pieces.filter((p) => !(p.slot === 'footwear' || p.slot.startsWith('accessory')));
   const result = await runSequential(ctx, userId, row.id, { imageId: data.img.id, data: baseData }, usable);
-  const { checks } = await checkWorn(ctx, userId, result.data, usable);
-  const fidelity = wornFidelity(checks, { minSimilarity: ctx.cfg.TRYON_MIN_SIMILARITY, maxDeltaE: ctx.cfg.TRYON_MAX_DELTA_E });
+  const { checks } = await checkWorn(ctx, userId, result.data, result.tried);
+  const notes = [...result.notes];
+  if (usable.some((p) => p.slot === 'accessory:bag')) notes.push('Los bolsos no se prueban: compáralo con tu conjunto.');
+  const fidelity = { ...wornFidelity(checks, { minSimilarity: ctx.cfg.TRYON_MIN_SIMILARITY, maxDeltaE: ctx.cfg.TRYON_MAX_DELTA_E }), ...(notes.length ? { notes } : {}) };
   if (!fidelity.passed) {
     await finish(ctx, userId, row.id, { status: 'rejected', error: fidelity.reason, fidelity });
     return;
