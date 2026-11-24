@@ -25,9 +25,9 @@ jobs:
       JWT_SECRET: ci-jwt-secret-ci-jwt-secret-ci-jwt-secret
       IMAGE_URL_SECRET: ci-image-secret-ci-image-secret-ci-image
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -43,9 +43,9 @@ jobs:
   mobile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -59,8 +59,8 @@ jobs:
       run:
         working-directory: services/vision
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --extra dev || uv sync
       - name: Tests (stub backend, no model downloads)
         run: VISION_BACKEND=stub uv run pytest -q
@@ -68,12 +68,12 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks scans the pushed commit range (<base>^..<head>), which needs history.
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -81,6 +81,6 @@ jobs:
       - name: Dependency audit (high/critical)
         run: pnpm audit --audit-level high || true
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
