@@ -1,0 +1,19 @@
+{
+  "name": "dressit",
+  "private": true,
+  "description": "DressIt — armario digital, estilista IA y personal shopper (mercado España)",
+  "packageManager": "pnpm@10.34.5",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev:api": "pnpm --filter @dressit/api dev",
+    "dev:worker": "pnpm --filter @dressit/api worker",
+    "dev:mobile": "pnpm --filter @dressit/mobile start",
+    "db:setup": "bash scripts/db-setup.sh",
+    "db:migrate": "pnpm --filter @dressit/api db:migrate",
+    "db:codegen": "pnpm --filter @dressit/api db:codegen",
+    "db:seed:demo": "pnpm --filter @dressit/api db:seed:demo",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r --parallel lint"
+  }
+}

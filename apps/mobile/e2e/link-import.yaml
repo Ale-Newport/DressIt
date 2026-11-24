@@ -1,0 +1,47 @@
+# Importar un enlace de tienda → producto con procedencia verificada / no verificada → lista de deseos.
+# Uso: maestro test -e PRODUCT_URL="https://…" e2e/link-import.yaml
+# Si la tienda bloquea la importación desde el servidor, se comprueba que se ofrece el
+# navegador de la app («Capturar este producto») en lugar de fallar en silencio.
+appId: com.dressit.app
+name: Importación de enlace
+env:
+  PRODUCT_URL: ${PRODUCT_URL || 'https://www.example.com/producto/chaqueta-beige.html'}
+---
+- runFlow: subflows/register.yaml
+- runFlow: subflows/skip-onboarding.yaml
+- tapOn:
+    id: "tab-armario"
+- tapOn:
+    id: "armario-add"
+- tapOn:
+    id: "add-sheet-link"
+- extendedWaitUntil:
+    visible:
+      id: "link-import-screen"
+    timeout: 15000
+- tapOn:
+    id: "link-input"
+- inputText: ${PRODUCT_URL}
+- hideKeyboard
+- tapOn:
+    id: "link-submit"
+- extendedWaitUntil:
+    visible:
+      id: "imported-product-screen|link-result|link-error-open-browser"
+    timeout: 45000
+- runFlow:
+    when:
+      visible:
+        id: "imported-product-screen"
+    commands:
+      - assertVisible:
+          id: "imported-status"
+      - scrollUntilVisible:
+          element:
+            id: "imported-to-wishlist"
+          direction: DOWN
+      - tapOn:
+          id: "imported-to-wishlist"
+      - extendedWaitUntil:
+          visible: "Lista de deseos"
+          timeout: 15000

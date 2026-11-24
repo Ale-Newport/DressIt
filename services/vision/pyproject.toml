@@ -1,0 +1,50 @@
+[project]
+name = "dressit-vision"
+version = "0.1.0"
+description = "DressIt vision microservice: garment cutout, attributes, colours, embeddings and OCR"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.18",
+    "pydantic>=2.9",
+    "numpy>=1.26",
+    "pillow>=11.0",
+    "pillow-heif>=0.20",
+    "scipy>=1.14",
+    "opencv-python-headless>=4.10",
+    # --- ML backend (VISION_BACKEND=torch). Imported lazily: the stub backend never touches them.
+    "torch>=2.5",
+    "torchvision>=0.20",
+    "open-clip-torch>=2.29",
+    "transformers>=4.46",
+    "sentencepiece>=0.2",
+    "rembg>=2.0.60",
+    "onnxruntime>=1.20",
+    "easyocr>=1.7.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",
+]
+
+[tool.uv]
+package = false
+
+# Linux (Docker) gets the small CPU-only torch wheels; macOS uses PyPI (MPS-enabled) wheels.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

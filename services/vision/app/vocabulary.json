@@ -1,0 +1,1255 @@
+{
+  "generatedBy": "packages/shared/scripts/export-vocabulary.ts",
+  "categories": [
+    "top",
+    "bottom",
+    "one_piece",
+    "outerwear",
+    "footwear",
+    "accessory",
+    "swimwear"
+  ],
+  "subcategories": [
+    {
+      "id": "camiseta",
+      "label": "Camiseta",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.08,
+      "formality": 20,
+      "styles": {
+        "casual": 1,
+        "minimalista": 0.6,
+        "streetwear": 0.6
+      }
+    },
+    {
+      "id": "camiseta_manga_larga",
+      "label": "Camiseta de manga larga",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.12,
+      "formality": 22,
+      "styles": {
+        "casual": 1,
+        "minimalista": 0.6
+      }
+    },
+    {
+      "id": "camiseta_tecnica",
+      "label": "Camiseta técnica",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.07,
+      "formality": 5,
+      "styles": {
+        "deportivo": 1,
+        "athleisure": 0.7
+      }
+    },
+    {
+      "id": "polo",
+      "label": "Polo",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.12,
+      "formality": 40,
+      "styles": {
+        "preppy": 1,
+        "casual": 0.7,
+        "clasico": 0.6
+      }
+    },
+    {
+      "id": "camisa",
+      "label": "Camisa",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.25,
+      "formality": 65,
+      "styles": {
+        "clasico": 0.9,
+        "formal": 0.7,
+        "elegante": 0.6,
+        "preppy": 0.6,
+        "minimalista": 0.5
+      }
+    },
+    {
+      "id": "camisa_manga_corta",
+      "label": "Camisa de manga corta",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.19,
+      "formality": 45,
+      "styles": {
+        "casual": 0.8,
+        "bohemio": 0.4,
+        "clasico": 0.4
+      }
+    },
+    {
+      "id": "sobrecamisa",
+      "label": "Sobrecamisa",
+      "category": "top",
+      "layer": "mid",
+      "clo": 0.3,
+      "formality": 40,
+      "styles": {
+        "utilitario": 1,
+        "casual": 0.8,
+        "streetwear": 0.4
+      }
+    },
+    {
+      "id": "blusa",
+      "label": "Blusa",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.17,
+      "formality": 60,
+      "styles": {
+        "elegante": 0.8,
+        "romantico": 0.7,
+        "clasico": 0.6
+      }
+    },
+    {
+      "id": "top",
+      "label": "Top",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.06,
+      "formality": 35,
+      "styles": {
+        "casual": 0.7,
+        "romantico": 0.4,
+        "streetwear": 0.4
+      }
+    },
+    {
+      "id": "body",
+      "label": "Body",
+      "category": "top",
+      "layer": "base",
+      "clo": 0.1,
+      "formality": 45,
+      "styles": {
+        "elegante": 0.6,
+        "minimalista": 0.6
+      }
+    },
+    {
+      "id": "jersey",
+      "label": "Jersey",
+      "category": "top",
+      "layer": "mid",
+      "clo": 0.28,
+      "formality": 45,
+      "styles": {
+        "clasico": 0.8,
+        "casual": 0.8,
+        "minimalista": 0.6,
+        "preppy": 0.5
+      }
+    },
+    {
+      "id": "jersey_grueso",
+      "label": "Jersey grueso",
+      "category": "top",
+      "layer": "mid",
+      "clo": 0.36,
+      "formality": 35,
+      "styles": {
+        "casual": 0.9,
+        "clasico": 0.5
+      }
+    },
+    {
+      "id": "sudadera",
+      "label": "Sudadera",
+      "category": "top",
+      "layer": "mid",
+      "clo": 0.34,
+      "formality": 15,
+      "styles": {
+        "streetwear": 1,
+        "casual": 0.9,
+        "athleisure": 0.8,
+        "deportivo": 0.5
+      }
+    },
+    {
+      "id": "cardigan",
+      "label": "Cárdigan",
+      "category": "top",
+      "layer": "mid",
+      "clo": 0.25,
+      "formality": 50,
+      "styles": {
+        "clasico": 0.7,
+        "romantico": 0.6,
+        "vintage": 0.5,
+        "preppy": 0.5
+      }
+    },
+    {
+      "id": "chaleco_punto",
+      "label": "Chaleco de punto",
+      "category": "top",
+      "layer": "mid",
+      "clo": 0.13,
+      "formality": 50,
+      "styles": {
+        "preppy": 0.9,
+        "vintage": 0.7,
+        "clasico": 0.6
+      }
+    },
+    {
+      "id": "pantalon",
+      "label": "Pantalón",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.24,
+      "formality": 60,
+      "styles": {
+        "clasico": 0.7,
+        "minimalista": 0.7,
+        "elegante": 0.5,
+        "casual": 0.5
+      }
+    },
+    {
+      "id": "pantalon_vestir",
+      "label": "Pantalón de vestir",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.25,
+      "formality": 78,
+      "styles": {
+        "formal": 1,
+        "elegante": 0.8,
+        "clasico": 0.8
+      }
+    },
+    {
+      "id": "vaquero",
+      "label": "Vaquero",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.26,
+      "formality": 35,
+      "styles": {
+        "casual": 1,
+        "streetwear": 0.6,
+        "rockero": 0.5,
+        "vintage": 0.4,
+        "minimalista": 0.4
+      }
+    },
+    {
+      "id": "chino",
+      "label": "Chino",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.24,
+      "formality": 55,
+      "styles": {
+        "preppy": 0.9,
+        "clasico": 0.8,
+        "casual": 0.7
+      }
+    },
+    {
+      "id": "pantalon_corto",
+      "label": "Pantalón corto",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.06,
+      "formality": 15,
+      "styles": {
+        "casual": 1,
+        "deportivo": 0.4
+      }
+    },
+    {
+      "id": "bermuda",
+      "label": "Bermuda",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.08,
+      "formality": 25,
+      "styles": {
+        "casual": 1,
+        "preppy": 0.5
+      }
+    },
+    {
+      "id": "falda",
+      "label": "Falda",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.14,
+      "formality": 55,
+      "styles": {
+        "romantico": 0.7,
+        "elegante": 0.6,
+        "clasico": 0.5
+      }
+    },
+    {
+      "id": "falda_larga",
+      "label": "Falda larga",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.18,
+      "formality": 55,
+      "styles": {
+        "bohemio": 0.9,
+        "romantico": 0.6,
+        "elegante": 0.5
+      }
+    },
+    {
+      "id": "leggings",
+      "label": "Leggings",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.14,
+      "formality": 10,
+      "styles": {
+        "deportivo": 0.9,
+        "athleisure": 1
+      }
+    },
+    {
+      "id": "jogger",
+      "label": "Jogger",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.25,
+      "formality": 10,
+      "styles": {
+        "athleisure": 1,
+        "streetwear": 0.8,
+        "deportivo": 0.7
+      }
+    },
+    {
+      "id": "pantalon_deportivo_corto",
+      "label": "Pantalón corto deportivo",
+      "category": "bottom",
+      "layer": "bottom",
+      "clo": 0.05,
+      "formality": 5,
+      "styles": {
+        "deportivo": 1
+      }
+    },
+    {
+      "id": "vestido",
+      "label": "Vestido",
+      "category": "one_piece",
+      "layer": "one_piece",
+      "clo": 0.25,
+      "formality": 60,
+      "styles": {
+        "elegante": 0.8,
+        "romantico": 0.7,
+        "minimalista": 0.4
+      }
+    },
+    {
+      "id": "vestido_punto",
+      "label": "Vestido de punto",
+      "category": "one_piece",
+      "layer": "one_piece",
+      "clo": 0.4,
+      "formality": 50,
+      "styles": {
+        "minimalista": 0.7,
+        "clasico": 0.6,
+        "casual": 0.5
+      }
+    },
+    {
+      "id": "vestido_fiesta",
+      "label": "Vestido de fiesta",
+      "category": "one_piece",
+      "layer": "one_piece",
+      "clo": 0.22,
+      "formality": 90,
+      "styles": {
+        "elegante": 1,
+        "formal": 0.8
+      }
+    },
+    {
+      "id": "mono",
+      "label": "Mono",
+      "category": "one_piece",
+      "layer": "one_piece",
+      "clo": 0.3,
+      "formality": 50,
+      "styles": {
+        "utilitario": 0.6,
+        "elegante": 0.5,
+        "casual": 0.5
+      }
+    },
+    {
+      "id": "traje_chandal",
+      "label": "Chándal (conjunto)",
+      "category": "one_piece",
+      "layer": "one_piece",
+      "clo": 0.55,
+      "formality": 5,
+      "styles": {
+        "deportivo": 1,
+        "athleisure": 0.8
+      }
+    },
+    {
+      "id": "americana",
+      "label": "Americana / blazer",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.36,
+      "formality": 82,
+      "styles": {
+        "formal": 0.9,
+        "elegante": 0.9,
+        "clasico": 0.9,
+        "minimalista": 0.5
+      }
+    },
+    {
+      "id": "chaqueta",
+      "label": "Chaqueta",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.38,
+      "formality": 45,
+      "styles": {
+        "casual": 0.8,
+        "utilitario": 0.5
+      }
+    },
+    {
+      "id": "cazadora_vaquera",
+      "label": "Cazadora vaquera",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.35,
+      "formality": 30,
+      "styles": {
+        "casual": 1,
+        "vintage": 0.6,
+        "rockero": 0.4
+      }
+    },
+    {
+      "id": "chaqueta_cuero",
+      "label": "Chaqueta de cuero",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.42,
+      "formality": 45,
+      "styles": {
+        "rockero": 1,
+        "streetwear": 0.5,
+        "casual": 0.5
+      }
+    },
+    {
+      "id": "bomber",
+      "label": "Bomber",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.4,
+      "formality": 30,
+      "styles": {
+        "streetwear": 1,
+        "casual": 0.7
+      }
+    },
+    {
+      "id": "gabardina",
+      "label": "Gabardina",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.55,
+      "formality": 72,
+      "styles": {
+        "clasico": 1,
+        "elegante": 0.8,
+        "minimalista": 0.5
+      }
+    },
+    {
+      "id": "abrigo",
+      "label": "Abrigo",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.7,
+      "formality": 72,
+      "styles": {
+        "clasico": 0.9,
+        "elegante": 0.9,
+        "minimalista": 0.6
+      }
+    },
+    {
+      "id": "parka",
+      "label": "Parka",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.8,
+      "formality": 30,
+      "styles": {
+        "utilitario": 0.9,
+        "casual": 0.8
+      }
+    },
+    {
+      "id": "plumifero",
+      "label": "Plumífero",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.9,
+      "formality": 25,
+      "styles": {
+        "casual": 0.8,
+        "deportivo": 0.4,
+        "streetwear": 0.5
+      }
+    },
+    {
+      "id": "impermeable",
+      "label": "Chubasquero / impermeable",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.3,
+      "formality": 20,
+      "styles": {
+        "utilitario": 0.8,
+        "deportivo": 0.6,
+        "casual": 0.6
+      }
+    },
+    {
+      "id": "chaleco_acolchado",
+      "label": "Chaleco acolchado",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.25,
+      "formality": 35,
+      "styles": {
+        "preppy": 0.7,
+        "utilitario": 0.6,
+        "casual": 0.6
+      }
+    },
+    {
+      "id": "chaqueta_deportiva",
+      "label": "Chaqueta deportiva",
+      "category": "outerwear",
+      "layer": "outer",
+      "clo": 0.3,
+      "formality": 10,
+      "styles": {
+        "deportivo": 1,
+        "athleisure": 0.7
+      }
+    },
+    {
+      "id": "zapatillas",
+      "label": "Zapatillas",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.03,
+      "formality": 22,
+      "styles": {
+        "casual": 1,
+        "streetwear": 0.8,
+        "minimalista": 0.5,
+        "athleisure": 0.6
+      }
+    },
+    {
+      "id": "zapatillas_lona",
+      "label": "Zapatillas de lona",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.02,
+      "formality": 18,
+      "styles": {
+        "casual": 1,
+        "vintage": 0.5
+      }
+    },
+    {
+      "id": "zapatillas_running",
+      "label": "Zapatillas deportivas (running/training)",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.03,
+      "formality": 5,
+      "styles": {
+        "deportivo": 1,
+        "athleisure": 0.8
+      }
+    },
+    {
+      "id": "botas",
+      "label": "Botas",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.1,
+      "formality": 45,
+      "styles": {
+        "casual": 0.6,
+        "rockero": 0.6,
+        "utilitario": 0.6
+      }
+    },
+    {
+      "id": "botines",
+      "label": "Botines",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.06,
+      "formality": 58,
+      "styles": {
+        "clasico": 0.7,
+        "elegante": 0.6,
+        "rockero": 0.4
+      }
+    },
+    {
+      "id": "zapatos",
+      "label": "Zapatos (oxford/derby)",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.04,
+      "formality": 85,
+      "styles": {
+        "formal": 1,
+        "clasico": 0.9,
+        "elegante": 0.8
+      }
+    },
+    {
+      "id": "mocasines",
+      "label": "Mocasines",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.03,
+      "formality": 70,
+      "styles": {
+        "clasico": 1,
+        "preppy": 0.8,
+        "elegante": 0.6
+      }
+    },
+    {
+      "id": "tacones",
+      "label": "Zapatos de tacón",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.02,
+      "formality": 85,
+      "styles": {
+        "elegante": 1,
+        "formal": 0.8
+      }
+    },
+    {
+      "id": "bailarinas",
+      "label": "Bailarinas",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.02,
+      "formality": 55,
+      "styles": {
+        "romantico": 0.8,
+        "clasico": 0.6,
+        "minimalista": 0.5
+      }
+    },
+    {
+      "id": "sandalias",
+      "label": "Sandalias",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.02,
+      "formality": 30,
+      "styles": {
+        "casual": 0.8,
+        "bohemio": 0.8
+      }
+    },
+    {
+      "id": "alpargatas",
+      "label": "Alpargatas",
+      "category": "footwear",
+      "layer": "footwear",
+      "clo": 0.02,
+      "formality": 30,
+      "styles": {
+        "casual": 0.8,
+        "bohemio": 0.6,
+        "clasico": 0.4
+      }
+    },
+    {
+      "id": "bolso",
+      "label": "Bolso",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 55,
+      "styles": {
+        "elegante": 0.6,
+        "clasico": 0.5
+      }
+    },
+    {
+      "id": "mochila",
+      "label": "Mochila",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 15,
+      "styles": {
+        "casual": 0.8,
+        "streetwear": 0.5,
+        "deportivo": 0.5
+      }
+    },
+    {
+      "id": "cinturon",
+      "label": "Cinturón",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 55,
+      "styles": {
+        "clasico": 0.6
+      }
+    },
+    {
+      "id": "bufanda",
+      "label": "Bufanda",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0.05,
+      "formality": 45,
+      "styles": {
+        "clasico": 0.5,
+        "casual": 0.5
+      }
+    },
+    {
+      "id": "panuelo",
+      "label": "Pañuelo",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0.01,
+      "formality": 60,
+      "styles": {
+        "elegante": 0.7,
+        "clasico": 0.6,
+        "bohemio": 0.4
+      }
+    },
+    {
+      "id": "corbata",
+      "label": "Corbata",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 95,
+      "styles": {
+        "formal": 1,
+        "clasico": 0.6
+      }
+    },
+    {
+      "id": "gorro",
+      "label": "Gorro",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0.03,
+      "formality": 20,
+      "styles": {
+        "casual": 0.7,
+        "streetwear": 0.5
+      }
+    },
+    {
+      "id": "gorra",
+      "label": "Gorra",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0.01,
+      "formality": 10,
+      "styles": {
+        "streetwear": 0.8,
+        "deportivo": 0.7,
+        "casual": 0.6
+      }
+    },
+    {
+      "id": "sombrero",
+      "label": "Sombrero",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0.01,
+      "formality": 50,
+      "styles": {
+        "bohemio": 0.8,
+        "clasico": 0.5
+      }
+    },
+    {
+      "id": "gafas_sol",
+      "label": "Gafas de sol",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 40,
+      "styles": {
+        "casual": 0.5,
+        "elegante": 0.4
+      }
+    },
+    {
+      "id": "reloj",
+      "label": "Reloj",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 55,
+      "styles": {
+        "clasico": 0.6,
+        "elegante": 0.5
+      }
+    },
+    {
+      "id": "joyeria",
+      "label": "Joyería",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 65,
+      "styles": {
+        "elegante": 0.8,
+        "romantico": 0.5
+      }
+    },
+    {
+      "id": "guantes",
+      "label": "Guantes",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0.02,
+      "formality": 45,
+      "styles": {
+        "clasico": 0.5
+      }
+    },
+    {
+      "id": "paraguas",
+      "label": "Paraguas",
+      "category": "accessory",
+      "layer": "accessory",
+      "clo": 0,
+      "formality": 50,
+      "styles": {}
+    },
+    {
+      "id": "banador",
+      "label": "Bañador",
+      "category": "swimwear",
+      "layer": "swim",
+      "clo": 0.02,
+      "formality": 5,
+      "styles": {
+        "casual": 1
+      }
+    },
+    {
+      "id": "bikini",
+      "label": "Bikini",
+      "category": "swimwear",
+      "layer": "swim",
+      "clo": 0.01,
+      "formality": 5,
+      "styles": {
+        "casual": 1
+      }
+    }
+  ],
+  "colorFamilies": [
+    {
+      "id": "negro",
+      "label": "Negro",
+      "hex": "#1a1a1a",
+      "neutral": true
+    },
+    {
+      "id": "antracita",
+      "label": "Gris antracita",
+      "hex": "#3c3d40",
+      "neutral": true
+    },
+    {
+      "id": "gris",
+      "label": "Gris",
+      "hex": "#8c8c8c",
+      "neutral": true
+    },
+    {
+      "id": "blanco",
+      "label": "Blanco",
+      "hex": "#f6f6f4",
+      "neutral": true
+    },
+    {
+      "id": "crudo",
+      "label": "Crudo",
+      "hex": "#ece3d0",
+      "neutral": true
+    },
+    {
+      "id": "beige",
+      "label": "Beige",
+      "hex": "#d6c2a3",
+      "neutral": true
+    },
+    {
+      "id": "camel",
+      "label": "Camel",
+      "hex": "#c09a6b",
+      "neutral": true
+    },
+    {
+      "id": "marron",
+      "label": "Marrón",
+      "hex": "#6b4528",
+      "neutral": true
+    },
+    {
+      "id": "azul_marino",
+      "label": "Azul marino",
+      "hex": "#1f2a44",
+      "neutral": true
+    },
+    {
+      "id": "denim",
+      "label": "Denim",
+      "hex": "#4b6584",
+      "neutral": true
+    },
+    {
+      "id": "azul",
+      "label": "Azul",
+      "hex": "#2f5ea8",
+      "neutral": false
+    },
+    {
+      "id": "celeste",
+      "label": "Celeste",
+      "hex": "#9cc3e6",
+      "neutral": false
+    },
+    {
+      "id": "turquesa",
+      "label": "Turquesa",
+      "hex": "#2bb3b1",
+      "neutral": false
+    },
+    {
+      "id": "verde",
+      "label": "Verde",
+      "hex": "#2e7d4f",
+      "neutral": false
+    },
+    {
+      "id": "verde_oliva",
+      "label": "Verde oliva",
+      "hex": "#6b6b30",
+      "neutral": false
+    },
+    {
+      "id": "caqui",
+      "label": "Caqui",
+      "hex": "#8f8b5e",
+      "neutral": true
+    },
+    {
+      "id": "menta",
+      "label": "Verde menta",
+      "hex": "#a8e0c8",
+      "neutral": false
+    },
+    {
+      "id": "amarillo",
+      "label": "Amarillo",
+      "hex": "#f2d13c",
+      "neutral": false
+    },
+    {
+      "id": "mostaza",
+      "label": "Mostaza",
+      "hex": "#c9a227",
+      "neutral": false
+    },
+    {
+      "id": "naranja",
+      "label": "Naranja",
+      "hex": "#e8772e",
+      "neutral": false
+    },
+    {
+      "id": "terracota",
+      "label": "Terracota",
+      "hex": "#b5563a",
+      "neutral": false
+    },
+    {
+      "id": "rojo",
+      "label": "Rojo",
+      "hex": "#c62828",
+      "neutral": false
+    },
+    {
+      "id": "burdeos",
+      "label": "Burdeos",
+      "hex": "#6d1a2a",
+      "neutral": false
+    },
+    {
+      "id": "rosa",
+      "label": "Rosa",
+      "hex": "#f1a7b8",
+      "neutral": false
+    },
+    {
+      "id": "fucsia",
+      "label": "Fucsia",
+      "hex": "#d6337a",
+      "neutral": false
+    },
+    {
+      "id": "lila",
+      "label": "Lila",
+      "hex": "#c3a6d8",
+      "neutral": false
+    },
+    {
+      "id": "morado",
+      "label": "Morado",
+      "hex": "#6a3d9a",
+      "neutral": false
+    },
+    {
+      "id": "dorado",
+      "label": "Dorado",
+      "hex": "#c9a64b",
+      "neutral": true,
+      "metallic": true
+    },
+    {
+      "id": "plateado",
+      "label": "Plateado",
+      "hex": "#c0c2c4",
+      "neutral": true,
+      "metallic": true
+    }
+  ],
+  "patterns": [
+    {
+      "id": "liso",
+      "label": "Liso",
+      "busyness": 0
+    },
+    {
+      "id": "rayas",
+      "label": "Rayas",
+      "busyness": 0.45
+    },
+    {
+      "id": "cuadros",
+      "label": "Cuadros",
+      "busyness": 0.6
+    },
+    {
+      "id": "pata_de_gallo",
+      "label": "Pata de gallo",
+      "busyness": 0.55
+    },
+    {
+      "id": "espiguilla",
+      "label": "Espiguilla",
+      "busyness": 0.3
+    },
+    {
+      "id": "lunares",
+      "label": "Lunares",
+      "busyness": 0.55
+    },
+    {
+      "id": "floral",
+      "label": "Floral",
+      "busyness": 0.75
+    },
+    {
+      "id": "animal",
+      "label": "Animal print",
+      "busyness": 0.85
+    },
+    {
+      "id": "geometrico",
+      "label": "Geométrico",
+      "busyness": 0.65
+    },
+    {
+      "id": "cachemir",
+      "label": "Cachemir (paisley)",
+      "busyness": 0.8
+    },
+    {
+      "id": "camuflaje",
+      "label": "Camuflaje",
+      "busyness": 0.75
+    },
+    {
+      "id": "grafico",
+      "label": "Gráfico / logo",
+      "busyness": 0.55
+    },
+    {
+      "id": "tie_dye",
+      "label": "Tie-dye",
+      "busyness": 0.8
+    },
+    {
+      "id": "abstracto",
+      "label": "Abstracto",
+      "busyness": 0.7
+    }
+  ],
+  "materials": [
+    {
+      "id": "algodon",
+      "label": "Algodón"
+    },
+    {
+      "id": "lino",
+      "label": "Lino"
+    },
+    {
+      "id": "lana",
+      "label": "Lana"
+    },
+    {
+      "id": "cachemira",
+      "label": "Cachemira"
+    },
+    {
+      "id": "seda",
+      "label": "Seda"
+    },
+    {
+      "id": "saten",
+      "label": "Satén"
+    },
+    {
+      "id": "poliester",
+      "label": "Poliéster"
+    },
+    {
+      "id": "viscosa",
+      "label": "Viscosa"
+    },
+    {
+      "id": "denim",
+      "label": "Denim"
+    },
+    {
+      "id": "punto",
+      "label": "Punto"
+    },
+    {
+      "id": "pana",
+      "label": "Pana"
+    },
+    {
+      "id": "tweed",
+      "label": "Tweed"
+    },
+    {
+      "id": "cuero",
+      "label": "Cuero / piel"
+    },
+    {
+      "id": "ante",
+      "label": "Ante"
+    },
+    {
+      "id": "lona",
+      "label": "Lona"
+    },
+    {
+      "id": "tecnico",
+      "label": "Tejido técnico"
+    },
+    {
+      "id": "plumon",
+      "label": "Plumón"
+    },
+    {
+      "id": "nailon",
+      "label": "Nailon"
+    },
+    {
+      "id": "sintetico",
+      "label": "Sintético"
+    },
+    {
+      "id": "terciopelo",
+      "label": "Terciopelo"
+    }
+  ],
+  "styles": [
+    "casual",
+    "formal",
+    "deportivo",
+    "streetwear",
+    "elegante",
+    "minimalista",
+    "clasico",
+    "bohemio",
+    "romantico",
+    "rockero",
+    "preppy",
+    "vintage",
+    "utilitario",
+    "athleisure"
+  ],
+  "seasons": [
+    "primavera",
+    "verano",
+    "otono",
+    "invierno"
+  ],
+  "fits": [
+    "ajustado",
+    "regular",
+    "holgado",
+    "oversize"
+  ]
+}

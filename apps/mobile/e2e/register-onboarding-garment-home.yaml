@@ -1,0 +1,73 @@
+# Registro → onboarding (con un paso respondido) → añadir prenda manual → recomendaciones en Inicio.
+# Requiere: API en marcha y una dev build instalada (npx expo run:ios / run:android).
+appId: com.dressit.app
+name: Registro, onboarding, prenda manual e Inicio
+---
+- runFlow: subflows/register.yaml
+
+# Onboarding: answer the first step (styles), then skip the rest.
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-step-styles"
+    timeout: 20000
+- tapOn:
+    id: "pref-style-casual"
+    optional: true
+- tapOn:
+    id: "onboarding-next"
+- runFlow: subflows/skip-onboarding.yaml
+
+# Add a garment manually from Armario.
+- tapOn:
+    id: "tab-armario"
+- extendedWaitUntil:
+    visible:
+      id: "armario-screen"
+    timeout: 15000
+- tapOn:
+    id: "armario-add"
+- tapOn:
+    id: "add-sheet-manual"
+- extendedWaitUntil:
+    visible:
+      id: "garment-new-screen"
+    timeout: 15000
+- tapOn:
+    id: "garment-new-category-top"
+- tapOn:
+    id: "garment-new-subcategory-camiseta"
+- tapOn:
+    id: "garment-new-name"
+- inputText: "Camiseta blanca E2E"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "garment-new-save"
+    direction: DOWN
+    optional: true
+- tapOn:
+    id: "garment-new-save"
+- extendedWaitUntil:
+    visible: "Camiseta blanca E2E"
+    timeout: 15000
+
+# Back to Inicio: recommendations (or the honest "not enough garments" state) must render.
+- openLink: "dressit://"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 20000
+- assertVisible:
+    id: "home-greeting"
+- extendedWaitUntil:
+    notVisible:
+      id: "home-outfits-loading"
+    timeout: 45000
+- runFlow:
+    when:
+      visible:
+        id: "home-outfit-0"
+    commands:
+      - tapOn:
+          id: "home-outfit-0-accept"
+          optional: true

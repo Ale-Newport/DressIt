@@ -1,0 +1,26 @@
+# Registers a brand-new account with a random e-mail (no real credentials needed).
+appId: com.dressit.app
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible:
+      id: "welcome-screen"
+    timeout: 20000
+- tapOn:
+    id: "welcome-register"
+- tapOn:
+    id: "register-name"
+- inputText: "E2E Maestro"
+- tapOn:
+    id: "register-email"
+- inputRandomEmail
+- tapOn:
+    id: "register-password"
+- inputText: "dressit-e2e-2026"
+- hideKeyboard
+- tapOn:
+    id: "register-terms"
+- tapOn:
+    id: "register-submit"

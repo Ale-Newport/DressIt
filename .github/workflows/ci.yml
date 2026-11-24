@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dressit_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_TEST_ADMIN_URL: postgres://postgres:postgres@localhost:5432/dressit_test
+      DATABASE_TEST_URL: postgres://dressit_app:dressit_app_ci@localhost:5432/dressit_test
+      DATABASE_URL: postgres://dressit_app:dressit_app_ci@localhost:5432/dressit_test
+      JWT_SECRET: ci-jwt-secret-ci-jwt-secret-ci-jwt-secret
+      IMAGE_URL_SECRET: ci-image-secret-ci-image-secret-ci-image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create application role
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d dressit_test -c "create role dressit_app login password 'dressit_app_ci'; grant usage on schema public to dressit_app;"
+      - name: Typecheck
+        run: pnpm --filter @dressit/shared --filter @dressit/stylist-engine --filter @dressit/api typecheck
+      - name: Unit + integration tests (shared, engine, API)
+        run: pnpm --filter @dressit/shared --filter @dressit/stylist-engine --filter @dressit/api test
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dressit/mobile typecheck
+      - run: pnpm --filter @dressit/mobile test
+
+  vision:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/vision
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev || uv sync
+      - name: Tests (stub backend, no model downloads)
+        run: VISION_BACKEND=stub uv run pytest -q
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Dependency audit (high/critical)
+        run: pnpm audit --audit-level high || true
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

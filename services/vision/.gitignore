@@ -1,0 +1,7 @@
+# Evaluation images are re-downloadable (scripts/fetch_eval_images.py); licences are in eval/manifest.csv
+eval/images/
+eval/out/
+models_cache/
+.venv/
+__pycache__/
+.pytest_cache/

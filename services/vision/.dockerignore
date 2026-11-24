@@ -1,0 +1,6 @@
+.venv
+models_cache
+eval/images
+eval/out
+**/__pycache__
+.pytest_cache

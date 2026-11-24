@@ -1,0 +1,14 @@
+{
+  "scales": {
+    "garment": 72.5,
+    "pattern": 167.5,
+    "material": 72.5,
+    "style": 72.5,
+    "warmth": 72.5,
+    "fit": 72.5,
+    "scene": 72.5
+  },
+  "fitted_on": "eval/manifest.csv split=calib (n=21 garments, 19 with pattern labels)",
+  "method": "grid search of softmax scale minimising NLL (acceptable-label sets); unlabeled heads inherit the garment scale",
+  "date": "2026-11-24"
+}
