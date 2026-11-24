@@ -32,6 +32,8 @@ export interface EngineGarment {
   embedding?: ArrayLike<number> | null;
   /** True for a product being simulated before purchase. */
   isCandidate?: boolean;
+  /** Width ÷ height of the garment's (cutout) image, for the flat lay. */
+  imageAspect?: number | null;
 }
 
 /** Weather over the user's day window (apparent temperature already includes wind chill). */

@@ -129,6 +129,8 @@ export default {
     requiredNote: 'Para retirar este consentimiento, borra tu cuenta desde Privacidad y datos.',
   },
   privacy: {
+    onDeviceAI: 'IA en tu iPhone (Apple Intelligence)',
+    onDeviceAIBody: 'Entiende mejor lo que pides al asistente, resume tus estadísticas y describe prendas, todo dentro del iPhone. Las decisiones siguen basándose en tu armario real.',
     intro: 'Tus datos te pertenecen. Puedes llevártelos o borrarlos de forma definitiva.',
     exportTitle: 'Exportar mis datos',
     exportBody: 'Descarga un archivo JSON con tu cuenta, armario, conjuntos, planes, viajes y consentimientos (RGPD, art. 20).',

@@ -1,5 +1,4 @@
 import type { GarmentDto } from '@dressit/shared';
-import { Image } from 'expo-image';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
@@ -7,6 +6,7 @@ import { colorHex, colorLabel, statusLabel, subcategoryLabel } from '@/lib/vocab
 import { radius, space, useTheme } from '@/theme';
 
 import { Badge } from './Badge';
+import { CutoutImage } from './CutoutImage';
 import { GarmentSilhouette } from './GarmentSilhouette';
 import { Icon } from './Icon';
 import { Text } from './Text';
@@ -62,16 +62,7 @@ export function GarmentTile({ garment, onPress, onLongPress, selected, selection
         ]}
       >
         {img ? (
-          <Image
-            source={{ uri: img.thumbUrl || img.url, cacheKey: `img-${img.id}-thumb` }}
-            style={StyleSheet.absoluteFill}
-            contentFit={img.isCutout ? 'contain' : 'cover'}
-            cachePolicy="memory-disk"
-            recyclingKey={garment.id}
-            transition={160}
-            accessible={false}
-            testID={`${testID ?? `garment-tile-${garment.id}`}-image`}
-          />
+          <CutoutImage image={img} inset={0.1} recyclingKey={garment.id} testID={`${testID ?? `garment-tile-${garment.id}`}-image`} />
         ) : (
           <GarmentSilhouette
             category={garment.category}

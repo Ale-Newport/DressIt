@@ -1,71 +1,109 @@
 /**
- * Ingests AUTHORISED affiliate product feeds (Awin "productdata" CSV/CSV.GZ) into the
- * catalog, then computes visual embeddings for products with licensed images.
+ * Ingests product data from AUTHORISED official sources into the catalog, then computes visual
+ * embeddings for products with licensed images.
  *
- *   pnpm --filter @dressit/api catalog:ingest -- --retailer decathlon --feed <url-or-path> [--network awin] [--sponsored]
+ *   pnpm --filter @dressit/api catalog:ingest                         # every configured source
+ *   pnpm --filter @dressit/api catalog:ingest -- --source rakuten      # only one source
+ *   pnpm --filter @dressit/api catalog:ingest -- --status              # show what is configured, ingest nothing
+ *   pnpm --filter @dressit/api catalog:ingest -- --retailer decathlon --feed <awin-csv-url-or-path> [--sponsored]
  *
- * Without arguments it uses AWIN_FEED_URLS (format: retailerId=url,retailerId=url).
- * Only use feeds you are authorised to use under the network/advertiser terms.
+ * Sources (see .env.example and docs/conectar-tiendas.md):
+ *   awin_feed      Awin Create-a-Feed CSV (AWIN_FEED_URLS) + automatic feed list (AWIN_PUBLISHER_ID + AWIN_PRODUCTDATA_API_KEY)
+ *   awin_enhanced  Awin Enhanced feeds API (AWIN_PUBLISHER_ID + AWIN_API_TOKEN + AWIN_ADVERTISERS)
+ *   rakuten        Rakuten Advertising Product Search API (RAKUTEN_* + RAKUTEN_ADVERTISERS)
+ *   tradedoubler   Tradedoubler Products API (TRADEDOUBLER_PRODUCTS_TOKEN + TRADEDOUBLER_FEEDS)
+ *   cj             CJ Product Feed GraphQL API (CJ_* + CJ_ADVERTISERS)
+ * Only use data you are authorised to use under each network's and advertiser's terms.
  */
 import { parseArgs } from 'node:util';
 import { loadConfig } from '../src/config.ts';
 import { createDb, toVectorLiteral } from '../src/db/index.ts';
-import { readFeed } from '../src/modules/catalog/providers.ts';
-import { upsertFeedProducts } from '../src/modules/catalog/service.ts';
+import { createCatalogProviders, readFeed } from '../src/modules/catalog/providers.ts';
+import { runIngestJob } from '../src/modules/catalog/ingest.ts';
+import type { IngestJob } from '../src/modules/catalog/sources/types.ts';
+import { redactUrl } from '../src/modules/catalog/sources/http.ts';
 import { syncRetailers } from '../src/modules/retail/sync.ts';
 import { VisionClient } from '../src/modules/vision/client.ts';
 import { safeFetch } from '../src/lib/safe-fetch.ts';
 
-const { values } = parseArgs({ options: { retailer: { type: 'string' }, feed: { type: 'string' }, network: { type: 'string', default: 'awin' }, sponsored: { type: 'boolean', default: false }, 'no-embeddings': { type: 'boolean', default: false } } });
+const { values } = parseArgs({
+  // `pnpm … catalog:ingest -- --source x` forwards the literal `--`; ignore it.
+  args: process.argv.slice(2).filter((a, i) => !(i === 0 && a === '--')),
+  options: {
+    source: { type: 'string' },
+    retailer: { type: 'string' },
+    feed: { type: 'string' },
+    sponsored: { type: 'boolean', default: false },
+    status: { type: 'boolean', default: false },
+    'no-embeddings': { type: 'boolean', default: false },
+  },
+});
 const cfg = loadConfig();
+const providers = createCatalogProviders(cfg);
+
+if (values.status) {
+  for (const s of providers.sources) {
+    const missing = s.missing();
+    console.log(`${missing.length ? '·' : '✓'} ${s.id.padEnd(14)} ${s.name}${missing.length ? ` — faltan: ${missing.join(', ')}` : ' — credenciales presentes'}`);
+  }
+  process.exit(0);
+}
+
 const { db } = createDb(process.env.DATABASE_ADMIN_URL ?? cfg.DATABASE_URL, 4);
 await syncRetailers(db);
 const vision = new VisionClient(cfg.VISION_SERVICE_URL, cfg.VISION_TIMEOUT_MS);
 
-const jobs: Array<{ retailer: string; feed: string }> = values.retailer && values.feed
-  ? [{ retailer: values.retailer, feed: values.feed }]
-  : (cfg.AWIN_FEED_URLS ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
-      const [retailer, ...rest] = s.split('=');
-      return { retailer: retailer!, feed: rest.join('=') };
-    });
+let jobs: IngestJob[] = [];
+if (values.retailer && values.feed) {
+  const feed = values.feed;
+  jobs = [{ sourceId: 'awin_feed', provider: 'awin', network: 'awin', provenance: 'feed', retailerId: values.retailer, label: `awin:${redactUrl(feed)}`, fetch: async () => ({ products: await readFeed(feed), warnings: [] }) }];
+} else {
+  const selected = providers.sources.filter((s) => !values.source || s.id === values.source || s.provider === values.source);
+  if (values.source && !selected.length) {
+    console.error(`Fuente desconocida: ${values.source}. Usa una de: ${providers.sources.map((s) => s.id).join(', ')}`);
+    process.exit(1);
+  }
+  for (const s of selected) {
+    if (s.missing().length) {
+      console.log(`· ${s.id}: sin credenciales (${s.missing().join(', ')}), se omite`);
+      continue;
+    }
+    try {
+      jobs.push(...(await s.jobs()));
+    } catch (err) {
+      console.error(`✗ ${s.id}: no se pudo preparar la ingesta: ${(err as Error).message}`);
+    }
+  }
+}
 if (!jobs.length) {
-  console.error('No hay feeds autorizados configurados. Usa --retailer y --feed, o AWIN_FEED_URLS=retailer=url,...');
+  console.error('No hay ninguna fuente autorizada configurada con tiendas asignadas. Consulta docs/conectar-tiendas.md (o ejecuta con --status).');
+  await db.destroy();
   process.exit(1);
 }
 
+let failures = 0;
 for (const job of jobs) {
-  const retailer = await db.selectFrom('retailers').select('id').where('id', '=', job.retailer).executeTakeFirst();
-  if (!retailer) throw new Error(`Tienda desconocida: ${job.retailer}`);
-  const integration = await db.selectFrom('retailer_integrations').select('id').where('retailer_id', '=', job.retailer).where('kind', '=', 'affiliate_feed').executeTakeFirst();
-  const run = await db.insertInto('catalog_sync_runs').values({ integration_id: integration?.id ?? null, source: job.feed.replace(/\/apikey\/[^/]+/, '/apikey/***'), status: 'running' }).returning('id').executeTakeFirstOrThrow();
-  try {
-    const products = await readFeed(job.feed);
-    console.log(`${job.retailer}: ${products.length} productos en el feed`);
-    const seen = new Set(products.map((p) => p.externalId));
-    const res = await upsertFeedProducts(db, job.retailer, integration?.id ?? null, values.network!, products, values.sponsored);
-    // Products no longer in the feed are deactivated (never shown as available).
-    const stale = await db.selectFrom('catalog_products').select(['id', 'external_id']).where('retailer_id', '=', job.retailer).where('is_active', '=', true).execute();
-    const gone = stale.filter((s) => !seen.has(s.external_id)).map((s) => s.id);
-    if (gone.length) await db.updateTable('catalog_products').set({ is_active: false }).where('id', 'in', gone).execute();
-    let embedded = 0;
-    if (!values['no-embeddings']) {
-      for (const p of res.needEmbedding) {
-        try {
-          const img = await safeFetch(p.imageUrl, { userAgent: cfg.LINK_IMPORT_USER_AGENT, timeoutMs: 15_000, maxBytes: 8_000_000, respectRobots: false, accept: 'image/*', allowedContentTypes: /^image\// });
-          const e = await vision.embedImage(img.raw, img.contentType);
-          await db.insertInto('product_embeddings').values({ product_id: p.id, model: e.model, image_url: p.imageUrl, embedding: toVectorLiteral(e.embedding) }).onConflict((oc) => oc.column('product_id').doNothing()).execute();
-          embedded++;
-        } catch (err) {
-          console.warn(`  sin embedding para ${p.id}: ${(err as Error).message}`);
-        }
+  const res = await runIngestJob(db, job, { sponsored: values.sponsored });
+  for (const w of res.warnings) console.warn(`  ⚠ ${job.retailerId}: ${w}`);
+  if (!res.ok) {
+    failures++;
+    console.error(`✗ ${job.retailerId} (${job.label}): ${res.error}`);
+    continue;
+  }
+  let embedded = 0;
+  if (!values['no-embeddings']) {
+    for (const p of res.needEmbedding) {
+      try {
+        const img = await safeFetch(p.imageUrl, { userAgent: cfg.LINK_IMPORT_USER_AGENT, timeoutMs: 15_000, maxBytes: 8_000_000, respectRobots: false, accept: 'image/*', allowedContentTypes: /^image\// });
+        const e = await vision.embedImage(img.raw, img.contentType);
+        await db.insertInto('product_embeddings').values({ product_id: p.id, model: e.model, image_url: p.imageUrl, embedding: toVectorLiteral(e.embedding) }).onConflict((oc) => oc.column('product_id').doNothing()).execute();
+        embedded++;
+      } catch (err) {
+        console.warn(`  sin embedding para ${p.id}: ${(err as Error).message}`);
       }
     }
-    if (integration) await db.updateTable('retailer_integrations').set({ status: 'operational', last_checked_at: new Date(), last_check_result: `Feed ingerido: ${res.upserted} productos, ${embedded} con análisis visual` }).where('id', '=', integration.id).execute();
-    await db.updateTable('catalog_sync_runs').set({ status: 'completed', finished_at: new Date(), stats: JSON.stringify({ products: products.length, upserted: res.upserted, deactivated: gone.length, embedded }) }).where('id', '=', run.id).execute();
-    console.log(`✓ ${job.retailer}: ${res.upserted} actualizados, ${gone.length} desactivados, ${embedded} embeddings`);
-  } catch (err) {
-    await db.updateTable('catalog_sync_runs').set({ status: 'failed', finished_at: new Date(), error: (err as Error).message }).where('id', '=', run.id).execute();
-    console.error(`✗ ${job.retailer}: ${(err as Error).message}`);
   }
+  console.log(`✓ ${job.retailerId} (${job.label}): ${res.upserted} actualizados, ${res.deactivated} desactivados, ${embedded} embeddings`);
 }
 await db.destroy();
+process.exit(failures ? 2 : 0);

@@ -10,6 +10,7 @@ export * from './Icon';
 export * from './IconButton';
 export * from './Layout';
 export * from './ListRow';
+export * from './OnDeviceSummary';
 export * from './OutfitCanvas';
 export * from './PermissionPrompt';
 export * from './ProductCard';

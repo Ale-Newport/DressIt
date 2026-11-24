@@ -1,0 +1,28 @@
+{
+  "_fixture": "SINTÉTICO — forma de https://developers.cj.com/graphql/reference/Product%20Feed (2026-11-24)",
+  "data": {
+    "shoppingProducts": {
+      "totalCount": 3,
+      "count": 2,
+      "limit": 1000,
+      "resultList": [
+        {
+          "id": "CJ-1-38", "title": "Pendientes de aro dorados (fixture)", "description": "FIXTURE DE TEST", "brand": "Marca Fixture",
+          "link": "https://shop.example.test/p/cj-1", "imageLink": "https://cdn.example.test/cj-1.jpg", "additionalImageLink": [],
+          "price": { "amount": "59.00", "currency": "EUR" }, "salePrice": null, "availability": "IN_STOCK",
+          "size": "U", "color": "Dorado", "material": "Plata", "gtin": "8412345678905", "itemGroupId": null,
+          "lastUpdated": "2026-11-23T08:00:00Z", "advertiserName": "Anunciante ficticio (FIXTURE)", "productType": ["Joyería", "Pendientes"],
+          "linkCode": { "clickUrl": "https://www.anrdoezrs.example.test/click-0-1?url=https%3A%2F%2Fshop.example.test%2Fp%2Fcj-1" }
+        },
+        {
+          "id": "CJ-2-S", "title": "Chaqueta acolchada verde (fixture)", "description": "FIXTURE DE TEST", "brand": "Marca Fixture",
+          "link": "https://shop.example.test/p/cj-2", "imageLink": "https://cdn.example.test/cj-2.jpg",
+          "price": { "amount": "120.00", "currency": "EUR" }, "salePrice": { "amount": "90.00", "currency": "EUR" }, "availability": "OUT_OF_STOCK",
+          "size": "S", "color": "Verde", "gtin": null, "itemGroupId": "CJ-2",
+          "lastUpdated": "2026-11-23T08:00:00Z", "advertiserName": "Anunciante ficticio (FIXTURE)", "productType": ["Chaquetas"],
+          "linkCode": { "clickUrl": "https://www.anrdoezrs.example.test/click-0-2" }
+        }
+      ]
+    }
+  }
+}

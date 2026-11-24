@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SINTÉTICO: forma de https://developers.rakutenadvertising.com/guides/product_search (2026-11-24). Datos inventados. -->
+<result>
+  <TotalMatches>3</TotalMatches>
+  <TotalPages>2</TotalPages>
+  <PageNumber>2</PageNumber>
+  <item>
+    <mid>99001</mid>
+    <merchantname>Anunciante ficticio (FIXTURE)</merchantname>
+    <linkid>RK-L3</linkid>
+    <sku>RK-3</sku>
+    <productname>Jersey de cuello alto crudo (fixture)</productname>
+    <category><primary>Mujer</primary><secondary>Punto</secondary></category>
+    <price currency="EUR">45.99</price>
+    <saleprice currency="EUR"></saleprice>
+    <description><short>FIXTURE DE TEST</short></description>
+    <linkurl>https://click.linksynergy.example.test/link?id=fixture&amp;offerid=3</linkurl>
+    <imageurl>https://cdn.example.test/rk-3.jpg</imageurl>
+  </item>
+</result>

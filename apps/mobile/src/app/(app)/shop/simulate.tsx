@@ -126,7 +126,7 @@ function SimulationView({ data }: { data: SimulationResponse }) {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.md, paddingRight: space.xl }}>
             {data.outfits.map((o) => (
               <View key={o.id} style={styles.outfit}>
-                <OutfitCanvas items={o.items} layout={o.layout} testID={`simulate-outfit-${o.id}`} />
+                <OutfitCanvas items={o.items} testID={`simulate-outfit-${o.id}`} />
                 {o.explanation[0] ? (
                   <Text variant="caption" tone="muted" numberOfLines={3}>
                     {o.explanation[0]}

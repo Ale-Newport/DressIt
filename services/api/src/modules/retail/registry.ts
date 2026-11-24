@@ -21,6 +21,8 @@ export interface IntegrationDef {
   imagePolicy: ImagePolicy;
   capabilities: Partial<Record<'linkImport' | 'pageCapture' | 'catalogSearch' | 'prices' | 'availability' | 'images' | 'affiliateLinks' | 'visualSearch', boolean>>;
   credentialsEnv?: string;
+  /** Advertiser/programme id on the affiliate network (only when verified on the network's public page). */
+  programId?: string;
   requires?: string;
   notes: string;
 }
@@ -52,15 +54,30 @@ const pageCapture: IntegrationDef = {
   notes: 'El usuario abre la página en el navegador integrado o comparte desde Safari; la app lee los datos estructurados de la página que el propio usuario está viendo.',
 };
 
-const affiliate = (provider: 'awin' | 'rakuten', requires: string, notes: string, credentialsEnv = 'AWIN_PRODUCTDATA_API_KEY'): IntegrationDef => ({
+type AffiliateProvider = 'awin' | 'rakuten' | 'tradedoubler' | 'cj' | 'tradetracker';
+/** Env var whose presence enables the adapter (names only; see .env.example). TradeTracker has no adapter. */
+const CREDENTIALS_ENV: Record<AffiliateProvider, string | undefined> = {
+  awin: 'AWIN_PUBLISHER_ID',
+  rakuten: 'RAKUTEN_CLIENT_ID',
+  tradedoubler: 'TRADEDOUBLER_PRODUCTS_TOKEN',
+  cj: 'CJ_PERSONAL_ACCESS_TOKEN',
+  tradetracker: undefined,
+};
+
+/**
+ * An affiliate programme. `programId` is the network's advertiser id when it was verified on the
+ * network's own public page (see docs/comercios.md); unverified programmes say so in `notes`.
+ */
+const affiliate = (provider: AffiliateProvider, o: { programId?: string; requires: string; notes: string }): IntegrationDef => ({
   kind: 'affiliate_feed',
   provider,
   status: 'pending_authorization',
   imagePolicy: 'licensed',
   capabilities: { catalogSearch: true, prices: true, availability: true, images: true, affiliateLinks: true, visualSearch: true },
-  credentialsEnv,
-  requires,
-  notes,
+  ...(CREDENTIALS_ENV[provider] ? { credentialsEnv: CREDENTIALS_ENV[provider] } : {}),
+  ...(o.programId ? { programId: o.programId } : {}),
+  requires: o.requires,
+  notes: o.notes,
 });
 
 const inditexApi: IntegrationDef = {
@@ -77,23 +94,48 @@ const inditexApi: IntegrationDef = {
 const blocked = (detail: string) =>
   linkImport(`La tienda bloquea la lectura desde servidor (${detail}). Vía operativa: el usuario abre la página en el navegador integrado o comparte desde Safari y la app lee los datos de la página que está viendo.`);
 
-const inditex = (id: string, name: string, domain: string): RetailerDef => ({
+const inditex = (id: string, name: string, domain: string, extra: IntegrationDef[] = []): RetailerDef => ({
   id,
   name,
   group: 'Inditex',
   domains: [domain],
   website: `https://www.${domain}/es/`,
-  integrations: [blocked('HTTP 403, Akamai'), pageCapture, inditexApi],
+  integrations: [blocked('HTTP 403, Akamai'), pageCapture, inditexApi, ...extra],
 });
+
+/** Retailers added from the 2026-11-24 affiliate research; server-side link import not measured yet. */
+const unmeasured = linkImport('Importación por enlace aún no medida con `retailers:check`; si la tienda bloquea la lectura desde servidor, se usa la captura en dispositivo.');
+
+const tendamAwin = (brand: string) =>
+  affiliate('awin', {
+    requires: `Localizar «${brand} ES» en el directorio de Awin (con sesión iniciada) y solicitar el programa.`,
+    notes: `Un agregador de terceros lista «${brand} ES» como abierto en Awin; no se ha podido verificar en la página oficial de Awin (sin ID público).`,
+  });
 
 export const RETAILERS: RetailerDef[] = [
   inditex('zara', 'Zara', 'zara.com'),
   inditex('pullandbear', 'Pull&Bear', 'pullandbear.com'),
-  inditex('bershka', 'Bershka', 'bershka.com'),
-  inditex('massimodutti', 'Massimo Dutti', 'massimodutti.com'),
+  inditex('bershka', 'Bershka', 'bershka.com', [
+    affiliate('tradedoubler', {
+      requires: 'Localizar «Bershka ES» en Tradedoubler y solicitarlo. El programa equivalente de EE. UU. marca las apps móviles como «condicionales».',
+      notes: 'Un agregador de terceros lista «Bershka ES» en Tradedoubler; no verificado en el directorio oficial.',
+    }),
+  ]),
+  inditex('massimodutti', 'Massimo Dutti', 'massimodutti.com', [
+    affiliate('rakuten', {
+      requires: 'Comprobar en el panel de Rakuten Advertising si «Massimo Dutti ES» admite publishers y solicitarlo.',
+      notes: 'Un agregador de terceros lista Massimo Dutti ES en Rakuten Advertising; no verificado.',
+    }),
+  ]),
   inditex('stradivarius', 'Stradivarius', 'stradivarius.com'),
   inditex('oysho', 'Oysho', 'oysho.com'),
-  inditex('lefties', 'Lefties', 'lefties.com'),
+  inditex('lefties', 'Lefties', 'lefties.com', [
+    affiliate('awin', {
+      programId: '25103',
+      requires: 'Cuenta de publisher en Awin aprobada por «Lefties ES» (programa 25103).',
+      notes: 'Programa activo en Awin (4 %; 6 % creadores). Menciona un «catálogo de productos optimizado para afiliados». Prohíbe pujar por la marca y ceder enlaces a terceros sin autorización.',
+    }),
+  ]),
   {
     id: 'elcorteingles',
     name: 'El Corte Inglés',
@@ -114,12 +156,15 @@ export const RETAILERS: RetailerDef[] = [
     id: 'mango',
     name: 'Mango',
     group: null,
-    domains: ['mango.com', 'shop.mango.com'],
+    domains: ['mango.com', 'shop.mango.com', 'mangooutlet.com'],
     website: 'https://shop.mango.com/es/es',
     integrations: [
       blocked('HTTP 429, Vercel Security Checkpoint; publica microdatos schema.org en lugar de JSON-LD'),
       pageCapture,
-      affiliate('rakuten', 'Aprobación en el programa de Mango en Rakuten Advertising y acceso a su catálogo de productos.', 'Programa de afiliación en Rakuten Advertising; disponibilidad del feed de producto por confirmar.', 'RAKUTEN_TOKEN'),
+      affiliate('rakuten', {
+        requires: 'Aprobación en el programa de Mango en Rakuten Advertising (su página oficial de afiliados remite a Rakuten) y su MID en RAKUTEN_ADVERTISERS.',
+        notes: 'Programa exclusivo en Rakuten Advertising. Que Mango exponga su catálogo a publishers en España está por confirmar con Rakuten/Mango.',
+      }),
     ],
   },
   {
@@ -144,7 +189,7 @@ export const RETAILERS: RetailerDef[] = [
     group: 'Tendam',
     domains: ['myspringfield.com'],
     website: 'https://myspringfield.com/es/es',
-    integrations: [linkImport('Responde a la lectura a petición del usuario con JSON-LD Product. Ojo: su og:price:amount es 0.0, se usa el precio del JSON-LD.'), pageCapture],
+    integrations: [linkImport('Responde a la lectura a petición del usuario con JSON-LD Product. Ojo: su og:price:amount es 0.0, se usa el precio del JSON-LD.'), pageCapture, tendamAwin('Springfield')],
   },
   {
     id: 'cortefiel',
@@ -152,7 +197,7 @@ export const RETAILERS: RetailerDef[] = [
     group: 'Tendam',
     domains: ['cortefiel.com'],
     website: 'https://cortefiel.com/es/es',
-    integrations: [linkImport('Responde con JSON-LD Product. Su og:price:amount es 0.0, se usa el precio del JSON-LD.'), pageCapture],
+    integrations: [linkImport('Responde con JSON-LD Product. Su og:price:amount es 0.0, se usa el precio del JSON-LD.'), pageCapture, tendamAwin('Cortefiel')],
   },
   {
     id: 'pedrodelhierro',
@@ -160,7 +205,15 @@ export const RETAILERS: RetailerDef[] = [
     group: 'Tendam',
     domains: ['pedrodelhierro.com'],
     website: 'https://cortefiel.com/es/es',
-    integrations: [linkImport('pedrodelhierro.com redirige a intl.cortefiel.com; el catálogo español está en cortefiel.com (se resuelve como Cortefiel con marca Pedro del Hierro).'), pageCapture],
+    integrations: [linkImport('pedrodelhierro.com redirige a intl.cortefiel.com; el catálogo español está en cortefiel.com (se resuelve como Cortefiel con marca Pedro del Hierro).'), pageCapture, tendamAwin('Pedro del Hierro')],
+  },
+  {
+    id: 'womensecret',
+    name: "Women'secret",
+    group: 'Tendam',
+    domains: ['womensecret.com'],
+    website: 'https://womensecret.com/es/es',
+    integrations: [unmeasured, pageCapture, tendamAwin("Women'secret")],
   },
   {
     id: 'zalando',
@@ -176,7 +229,14 @@ export const RETAILERS: RetailerDef[] = [
     group: null,
     domains: ['asos.com'],
     website: 'https://www.asos.com/es/',
-    integrations: [blocked('sin respuesta desde servidor (timeout)'), pageCapture],
+    integrations: [
+      blocked('sin respuesta desde servidor (timeout)'),
+      pageCapture,
+      affiliate('rakuten', {
+        requires: 'Comprobar en el panel de Rakuten Advertising si «ASOS Spain» acepta publishers y solicitarlo.',
+        notes: 'Un agregador de terceros lista «ASOS Spain» en Rakuten Advertising; no verificado. El programa ES de Awin figura cerrado.',
+      }),
+    ],
   },
   {
     id: 'decathlon',
@@ -187,7 +247,11 @@ export const RETAILERS: RetailerDef[] = [
     integrations: [
       blocked('desafío de Cloudflare'),
       pageCapture,
-      affiliate('awin', 'Cuenta de publisher en Awin aprobada por «Decathlon ES» (programa 105405) y clave de Create-a-Feed.', 'Programa activo en Awin (3 %, cookie de 1 día). Feed disponible tras la aprobación.'),
+      affiliate('awin', {
+        programId: '105405',
+        requires: 'Cuenta de publisher en Awin aprobada por «Decathlon ES» (programa 105405).',
+        notes: 'Programa activo en Awin (3 %, cookie de 1 día para generalistas). Admite comparadores; prohíbe SEM de marca. El perfil público no menciona feed: se ve en Create-a-Feed tras la aprobación.',
+      }),
     ],
   },
   {
@@ -199,7 +263,10 @@ export const RETAILERS: RetailerDef[] = [
     integrations: [
       linkImport('Responde con JSON-LD ProductGroup con variantes.'),
       pageCapture,
-      affiliate('awin', 'Aprobación en el programa europeo de Nike gestionado por Awin (cobertura de España por confirmar).', 'El programa menciona un feed de producto automatizado.'),
+      affiliate('awin', {
+        requires: 'Confirmar con global-nike@awin.com el ID del programa Nike ES en Awin y solicitarlo.',
+        notes: 'El programa europeo de Nike lo gestiona Awin y menciona un feed de producto automatizado. Un agregador lista «Nike ES» como abierto; ID no verificado.',
+      }),
     ],
   },
   {
@@ -211,7 +278,11 @@ export const RETAILERS: RetailerDef[] = [
     integrations: [
       blocked('HTTP 403, cortafuegos'),
       pageCapture,
-      affiliate('awin', 'Cuenta de publisher en Awin aprobada por «adidas ES» (programa 77008) y clave de Create-a-Feed.', 'Programa activo en Awin (cookie de 30 días).'),
+      affiliate('awin', {
+        programId: '77008',
+        requires: 'Cuenta de publisher en Awin aprobada por «adidas ES» (programa 77008).',
+        notes: 'Programa activo en Awin (cookie de 30 días). Acepta portales de compra sin actividad CSS. El perfil no menciona feed: se ve en Create-a-Feed tras la aprobación.',
+      }),
     ],
   },
   {
@@ -220,7 +291,100 @@ export const RETAILERS: RetailerDef[] = [
     group: 'Zalando',
     domains: ['privebyzalando.es', 'zalando-prive.es'],
     website: 'https://www.zalando-prive.es/',
-    integrations: [affiliate('awin', 'Aprobación en el programa «Privé by Zalando ES» en Awin.', 'Único programa de Zalando España encontrado en Awin.')],
+    integrations: [
+      affiliate('awin', {
+        programId: '15573',
+        requires: 'Aprobación en «Privé by Zalando ES» en Awin. Prohíbe afiliados CSS: confirmar con el anunciante que una app de recomendaciones es aceptable.',
+        notes: 'Único programa de Zalando España en Awin (cookie de 30 días). No menciona feed de producto.',
+      }),
+    ],
+  },
+  {
+    id: 'bimbaylola',
+    name: 'Bimba y Lola',
+    group: null,
+    domains: ['bimbaylola.com'],
+    website: 'https://www.bimbaylola.com/es_es/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('awin', { programId: '129495', requires: 'Aprobación en «Bimbaylola_ES» en Awin (programa 129495).', notes: 'Programa activo en Awin (cookie de 30 días). No menciona feed ni reglas sobre apps.' }),
+    ],
+  },
+  {
+    id: 'jdsports',
+    name: 'JD Sports',
+    group: 'JD Group',
+    domains: ['jdsports.es'],
+    website: 'https://www.jdsports.es/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('awin', { programId: '10121', requires: 'Aprobación en «JD Sports ES» en Awin (programa 10121).', notes: 'Programa activo en Awin (cookie de 30 días). Prohíbe SEM de marca. No menciona feed.' }),
+    ],
+  },
+  {
+    id: 'footlocker',
+    name: 'Foot Locker',
+    group: null,
+    domains: ['footlocker.es'],
+    website: 'https://www.footlocker.es/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('awin', { programId: '23409', requires: 'Aprobación en «Foot Locker ES» en Awin (programa 23409). La actividad CSS requiere aprobación expresa.', notes: 'Programa activo en Awin que anuncia «product feeds available».' }),
+    ],
+  },
+  {
+    id: 'sprinter',
+    name: 'Sprinter',
+    group: null,
+    domains: ['sprintersports.com'],
+    website: 'https://www.sprintersports.com/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('awin', { programId: '27904', requires: 'Aprobación en «Sprinter ES» en Awin (programa 27904).', notes: 'Programa activo en Awin (cookie de 30 días). No acepta cupones, SEM ni retargeting. No menciona feed.' }),
+    ],
+  },
+  {
+    id: 'desigual',
+    name: 'Desigual',
+    group: null,
+    domains: ['desigual.com'],
+    website: 'https://www.desigual.com/es_ES/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('tradetracker', {
+        requires: 'Aprobación en «Desigual ES» en TradeTracker (campaña 18521) y confirmar que admite apps. En Tradedoubler (261390) las apps móviles están prohibidas.',
+        notes: 'Sin adaptador: la API de TradeTracker es SOAP y no hemos encontrado documentación pública de feeds para publishers.',
+      }),
+    ],
+  },
+  {
+    id: 'tous',
+    name: 'Tous',
+    group: null,
+    domains: ['tous.com'],
+    website: 'https://www.tous.com/es-es/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('cj', { requires: 'Localizar «TOUS EU» en CJ Affiliate y solicitarlo; anotar su ID de anunciante en CJ_ADVERTISERS.', notes: 'Un agregador de terceros lista «TOUS EU (ES, PL, PT…)» en CJ; no verificado en CJ.' }),
+    ],
+  },
+  {
+    id: 'shein',
+    name: 'SHEIN',
+    group: null,
+    domains: ['shein.com'],
+    website: 'https://es.shein.com/',
+    integrations: [
+      unmeasured,
+      pageCapture,
+      affiliate('awin', { requires: 'Confirmar en Awin el programa «SHEIN ES» (su perfil público no cargó el 24/11/2026) y solicitarlo.', notes: 'Fuentes secundarias citan un programa SHEIN ES en Awin; no verificado.' }),
+    ],
   },
 ];
 

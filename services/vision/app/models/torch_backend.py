@@ -196,7 +196,9 @@ class TorchBackend:
         return [probs[i, 0].astype(np.float32) for i in range(probs.shape[0])]
 
     # ---------------------------------------------------------------- detection
-    def detect(self, image: Image.Image, queries: Sequence[str], threshold: float) -> list[Detection]:
+    def detect(
+        self, image: Image.Image, queries: Sequence[str], threshold: float, *, short_side: int | None = None
+    ) -> list[Detection]:
         import torch
 
         processor, model = self._detector.get()
@@ -207,7 +209,9 @@ class TorchBackend:
             inputs = processor(text=[list(queries)], images=img, return_tensors="pt")
         else:
             prompt = ". ".join(q.lower() for q in queries) + "."
-            inputs = processor(images=img, text=prompt, return_tensors="pt")
+            # Grounding DINO's default input is 800 px (shortest side); a smaller one is ~2x faster.
+            size = {"shortest_edge": short_side, "longest_edge": int(short_side * 5 / 3)} if short_side else None
+            inputs = processor(images=img, text=prompt, return_tensors="pt", **({"size": size} if size else {}))
         inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()}
         with self._detector.run_lock, torch.inference_mode():
             outputs = model(**inputs)

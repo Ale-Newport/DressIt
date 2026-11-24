@@ -1,8 +1,10 @@
+import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, ProgressBar, Text } from '@/components/ui';
+import { intelligenceStatus, liftSubjectPreview } from '@/lib/intelligence';
 import { type QueueItem, uploadQueue } from '@/state/uploadQueue';
 import { radius, useTheme } from '@/theme';
 
@@ -10,6 +12,16 @@ import { radius, useTheme } from '@/theme';
 export function QueueThumb({ item, index, size = 72, onDark }: { item: QueueItem; index: number; size?: number; onDark?: boolean }) {
   const { t } = useTranslation('capture');
   const { colors } = useTheme();
+  // Instant preview: Apple's Vision lifts the subject on the phone (~0.1 s) while the server
+  // makes the real cutout. Falls back to the photo when unavailable.
+  const lifted = useQuery({
+    queryKey: ['lift-preview', item.uri],
+    queryFn: async () => (await liftSubjectPreview(item.uri))?.uri ?? null,
+    enabled: intelligenceStatus().subjectLifting,
+    staleTime: Infinity,
+    gcTime: 10 * 60_000,
+    retry: false,
+  });
   const status =
     item.status === 'queued'
       ? t('item.queued')
@@ -27,7 +39,11 @@ export function QueueThumb({ item, index, size = 72, onDark }: { item: QueueItem
         accessible
         accessibilityLabel={`${t('item.photo', { index: index + 1 })}: ${status}`}
       >
-        <Image source={{ uri: item.uri }} style={StyleSheet.absoluteFill} contentFit="cover" accessible={false} />
+        {lifted.data ? (
+          <Image source={{ uri: lifted.data }} style={[StyleSheet.absoluteFill, styles.lifted]} contentFit="contain" accessible={false} testID={`queue-item-${index}-lifted`} />
+        ) : (
+          <Image source={{ uri: item.uri }} style={StyleSheet.absoluteFill} contentFit="cover" accessible={false} />
+        )}
         {item.status === 'done' ? (
           <View style={[styles.badge, { backgroundColor: colors.success }]}>
             <Icon name="check" size={12} color="#fff" />
@@ -64,6 +80,7 @@ export function QueueThumb({ item, index, size = 72, onDark }: { item: QueueItem
 }
 
 const styles = StyleSheet.create({
+  lifted: { margin: 4 },
   thumb: { borderRadius: radius.sm, overflow: 'hidden', borderWidth: 2 },
   badge: { position: 'absolute', bottom: 4, right: 4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },

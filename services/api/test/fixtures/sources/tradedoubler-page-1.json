@@ -1,0 +1,21 @@
+{
+  "_fixture": "SINTÉTICO — forma de https://dev.tradedoubler.com/products/publisher/ (2026-11-24)",
+  "productHeader": { "totalHits": 3 },
+  "products": [
+    {
+      "name": "Camisa de lino blanca (fixture)",
+      "productImage": { "url": "https://cdn.example.test/td-3.jpg" },
+      "description": "FIXTURE DE TEST",
+      "offers": [ {
+        "feedId": 777,
+        "productUrl": "https://pdt.tradedoubler.com/click?a(0)p(0)product(td3)ttid(3)url(https%3A%2F%2Fshop.example.test%2Fp%2Ftd-3)",
+        "priceHistory": [ { "price": { "value": "35.00", "currency": "EUR" }, "date": 1763888400000 } ],
+        "modified": 1763888400000,
+        "availability": "out of stock",
+        "sourceProductId": "TD-3",
+        "id": "td-guid-3",
+        "sourceProductUrl": "https://shop.example.test/p/td-3"
+      } ]
+    }
+  ]
+}

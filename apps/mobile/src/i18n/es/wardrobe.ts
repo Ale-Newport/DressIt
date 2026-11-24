@@ -247,6 +247,7 @@ export default {
   },
   stats: {
     title: 'Estadísticas',
+    summary: 'Resumen de tu armario',
     total: 'Prendas',
     value: 'Valor estimado',
     avgCpw: 'Coste medio por uso',

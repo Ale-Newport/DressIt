@@ -273,6 +273,36 @@ DETECTION_GROUPS: tuple[tuple[str, str], ...] = (
 )
 PAIRED_GROUPS = frozenset({"footwear", "hands"})
 
+# Display supports that background removal keeps together with the garment (single
+# mode). Detector proposals only: every proposed region is verified by FashionSigLIP
+# (``SUPPORT_PROMPTS`` vs. garments and garment parts) before anything is removed.
+# Closed list of objects — never "person" or "face".
+PROP_QUERIES: tuple[str, ...] = ("clothes hanger", "mannequin", "mannequin head", "clothesline", "clothespin", "hook")
+SUPPORT_PROMPTS: dict[str, tuple[str, ...]] = {
+    "__support__hanger": ("a clothes hanger", "a wooden coat hanger", "a metal wire hanger", "a plastic hanger hook"),
+    "__support__mannequin": (
+        "a mannequin head", "a mannequin", "a dress form", "a styrofoam wig head", "a display bust", "a mannequin torso",
+    ),
+    "__support__line": ("a clothesline", "a rope", "a string", "a thin wire"),
+    "__support__peg": ("a clothespin", "a clothes peg", "a metal hook", "a hook on a wall", "a display stand"),
+    # Hat forms under a cap or beanie look like a hat to the model unless described plainly.
+    "__support__form": (
+        "a smooth featureless beige form", "a plain white plastic object", "a blank mannequin head with no face",
+        "a smooth cone-shaped stand", "a lampshade",
+    ),
+}
+# Parts of garments that look like supports (straps, chains, laces…): they compete with
+# the support classes so a bag chain or a shoelace is never taken for a clothesline.
+GARMENT_PART_PROMPTS: dict[str, tuple[str, ...]] = {
+    "__part__strap": (
+        "the chain strap of a handbag", "a bag handle", "a shoulder strap", "a leather strap", "a backpack strap",
+        "a metal buckle of a bag", "a metal ring of a bag handle",
+    ),
+    "__part__cord": ("a shoelace", "a drawstring cord of a hoodie", "a zipper pull", "a belt buckle", "a tassel", "a ribbon bow"),
+    "__part__piece": ("a sleeve of a garment", "a piece of fabric", "a knitted fabric", "a pocket", "a collar", "a label tag"),
+}
+SUPPORT_TEMPLATES: tuple[str, ...] = ("{}", "a photo of {}")
+
 
 def ensemble(names: tuple[str, ...], templates: tuple[str, ...]) -> list[str]:
     return [t.format(n) for n in names for t in templates]

@@ -18,7 +18,7 @@ export function TodayPlanCard({ plan }: { plan: PlanDto }) {
     <Card onPress={open} accessibilityLabel={`${t('plan.overline')}: ${plan.outfit.name ?? occasionLabel(plan.outfit.occasion)}`} accessibilityHint={t('plan.open')} testID="home-today-plan">
       <View style={styles.planRow}>
         <View style={styles.planCanvas}>
-          <OutfitCanvas items={plan.outfit.items} layout={plan.outfit.layout} aspectRatio={1} testID="home-today-plan-canvas" />
+          <OutfitCanvas items={plan.outfit.items} aspectRatio={1} testID="home-today-plan-canvas" />
         </View>
         <View style={{ flex: 1, gap: space.xs }}>
           <Text variant="overline" tone="accent">

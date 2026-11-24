@@ -1,7 +1,8 @@
 # Servicio de visión (`services/vision`)
 
 > Estado: 2026-11-24 · versión 0.1.0 · Python 3.13 · FastAPI · puerto 8001.
-> Resultados medidos: [`docs/evidence/vision-2026-11-24.md`](evidence/vision-2026-11-24.md).
+> Resultados medidos: [`docs/evidence/vision-2026-11-24.md`](evidence/vision-2026-11-24.md) y, para la
+> limpieza del recorte, [`docs/evidence/recortes-2026-11-24.md`](evidence/recortes-2026-11-24.md).
 > Arranque y variables: [`services/vision/README.md`](../services/vision/README.md).
 
 El servicio de visión recibe una foto y devuelve una ficha por prenda: el recorte sin fondo,
@@ -23,7 +24,7 @@ español. La API Node (`services/api`) es su único cliente. El servicio no guar
 Cada elemento de `items[]` de `/v1/analyze` contiene:
 
 - `bbox`: `[x0, y0, x1, y1]` normalizado entre 0 y 1, sobre la imagen ya girada según EXIF.
-- `cutout_png_base64`: PNG RGBA con el fondo transparente, recortado a la prenda con un 4 % de margen. El lado mayor mide como máximo 1024 px.
+- `cutout_png_base64`: PNG RGBA con el fondo transparente, recortado a la prenda con un 4 % de margen. El lado mayor mide como máximo 1024 px. Los píxeles semitransparentes del borde llevan el color estimado de la prenda, no el del fondo original (sin halo).
 - `mask_area_ratio`: fracción de la foto que ocupa la prenda.
 - `detection_score`: puntuación del detector. Es `null` si la prenda salió de la segmentación de fondo.
 - `category`, `subcategory`, `pattern` y `fit`: `{value, confidence, alternatives[]}` o `null`.
@@ -51,12 +52,19 @@ bytes ─► decodificar (JPEG/PNG/HEIC/WebP) + EXIF transpose + SHA-256 + pHash
       ─► tipo de foto (zero-shot FashionSigLIP: prenda suelta / varias prendas / persona vestida)
       ─► regiones:
            single + prenda suelta   → rembg isnet-general-use (máscara del objeto saliente)
+                                       ∥ en paralelo: propuestas de regiones (Grounding DINO a 480 px
+                                         con prendas + soportes, SAM 2.1 por caja)
+                                       → quitar soportes verificados por FashionSigLIP (percha,
+                                         maniquí/cabeza, tendedero, pinza, gancho) y líneas finas
+                                         que salen por el borde de la foto
            multi, o persona/flat-lay → Grounding DINO tiny (cajas de prendas, nunca "person")
                                        → filtrado de cajas → SAM 2.1 small (máscara por caja)
            PNG con transparencia     → se usa su canal alfa
       ─► recorte RGBA (+ normalización suave de blancos/exposición)
       ─► FashionSigLIP (un único lote) ─► cabezas zero-shot calibradas con abstención
+      ─► capas: una prenda reconocida dentro de otra se le resta (multi y single)
       ─► selección: single = prenda principal; multi = quitar no-prendas, fragmentos y duplicados
+      ─► bordes: color de primer plano en los píxeles semitransparentes (solo recortes devueltos)
       ─► colores (k-means CIELAB + CIEDE2000) y calidad, solo para las prendas devueltas
 ```
 
@@ -95,9 +103,12 @@ bytes ─► decodificar (JPEG/PNG/HEIC/WebP) + EXIF transpose + SHA-256 + pHash
 - **Máscaras en multi** (`app/pipeline/analyze.py`):
   - la máscara de SAM se limita a la caja más un 3 %;
   - se eliminan duplicados por IoU de máscara ≥ 0,7;
-  - **capas**: tras clasificar, si una máscara grande contiene una prenda de otra categoría
-    reconocida con subcategoría (por ejemplo, una chaqueta abierta sobre unos shorts), esos
-    píxeles se le restan y la prenda grande se vuelve a embeber;
+  - **capas**: tras clasificar, si una máscara grande contiene (≥ 60 %) una prenda de otra
+    categoría reconocida con subcategoría (por ejemplo, una chaqueta abierta sobre unos shorts),
+    esos píxeles se le restan y la prenda grande se vuelve a embeber. Desde el 2026-11-24 también
+    en modo `single` (`VISION_LAYER_SINGLE`), pero allí solo se restan prendas de ropa (arriba,
+    abajo, una pieza, abrigo): así el plumífero puesto deja de llevarse los vaqueros, y la
+    cinturilla de una falda tomada por "cinturón" no se resta;
   - los fragmentos contenidos en otra prenda (≥ 70 %) se descartan.
 - **Qué se devuelve en multi.**
   - Se descarta un ítem si la probabilidad de las clases de rechazo es ≥ 0,5. Estas clases son
@@ -107,6 +118,43 @@ bytes ─► decodificar (JPEG/PNG/HEIC/WebP) + EXIF transpose + SHA-256 + pHash
   - Un "complemento" sin subcategoría necesita una detección ≥ 0,30.
   - El modo `single` devuelve siempre exactamente un ítem, aunque no reconozca ninguna prenda. En
     ese caso los atributos van a `null` y se añade un aviso.
+- **Limpieza del recorte en `single`** (`app/pipeline/refine.py`; desde el 2026-11-24). rembg
+  devuelve todo lo saliente: la prenda *y* su soporte (el gancho de la percha, la cabeza de
+  maniquí bajo un gorro, el tendedero y sus pinzas). Solo en la ruta de rembg y con escena que no
+  sea `worn`:
+  1. **Propuestas en paralelo con rembg.** Grounding DINO recibe las 23 consultas de prenda más
+     una lista **cerrada** de soportes (`clothes hanger`, `mannequin`, `mannequin head`,
+     `clothesline`, `clothespin`, `hook`; nunca "person" ni "face"), a 480 px y con la foto
+     rellenada a un cuadrado (forma de entrada fija: sin recompilar en MPS). SAM 2.1 segmenta
+     las 10 mejores cajas (sin duplicados ni cajas de foto entera). Todo esto corre en otro hilo
+     mientras rembg corre en onnxruntime/CoreML, así que casi no suma latencia.
+  2. **Verificación semántica.** Las etiquetas de Grounding DINO tiny no sirven (ve "mannequin"
+     en cualquier prenda y "clothes hanger" en un bolso), así que solo aportan regiones. Cada
+     región (máscara de SAM ∩ primer plano, sobre blanco) se embebe con FashionSigLIP y compite
+     en un softmax con las 70 subcategorías, las clases de rechazo, **partes de prenda** (asa o
+     cadena de bolso, cordón, hebilla, cremallera, manga, etiqueta…) y **soportes** (percha,
+     maniquí, tendedero, pinza/gancho y "forma lisa sin rasgos"). Las partes de prenda están
+     para que una cadena de bolso o un cordón no se tomen por un tendedero.
+  3. **Se quita** una región si P(soporte) ≥ 0,5 (`VISION_SUPPORT_MIN_PROB`) y ocupa ≤ 60 % del
+     objeto, **salvo** donde la solapa una región reconocida como prenda (P(soporte) < 0,3) que
+     no sea mayoritariamente el propio soporte (una caja "gorro + cabeza" no protege la cabeza).
+     Si en total se quitaría más del 60 % del objeto, no se quita nada.
+  4. **Cabeza de maniquí bajo un gorro.** El modelo ve la cabeza lisa como "un sombrero"
+     (P(soporte) ≈ 0,3). Si la foto entera parece una prenda de cabeza (P(gorro + gorra +
+     sombrero) ≥ 0,5 con el embedding de la escena, ya calculado), una región cuya clase más
+     probable sea maniquí/forma, con P(soporte) ≥ 0,25, que llegue al fondo del objeto y empiece
+     claramente por debajo de su parte superior, se trata como soporte.
+  5. **Líneas que cruzan el borde** (`VISION_THIN_BORDER_RADIUS`). Las partes de la máscara más
+     estrechas que ~0,6 % del lado mayor que **tocan el borde de la foto** (un tendedero, una
+     barra) se quitan. Las partes finas de la propia prenda (asas, cadenas, cordones, cinturones)
+     terminan dentro de la foto y se conservan.
+- **Bordes sin halo** (`VISION_DECONTAMINATE_EDGES`). En los píxeles semitransparentes del borde
+  el color observado mezcla prenda y fondo (una línea clara alrededor de una americana negra
+  fotografiada sobre blanco). Se sustituye por el color de primer plano estimado con
+  `pymatting.estimate_foreground_ml` (Germer et al., 2020; MIT), calculado a ≤ 512 px y aplicado
+  solo a los píxeles con 0 < alfa < 250. Solo se hace en los recortes devueltos (≈ 35 ms); el
+  clasificador los ve compuestos sobre blanco, así que no cambia lo que clasifica. Los colores
+  de la ficha salen de los píxeles opacos de la máscara y no se ven afectados.
 - **Normalización del recorte** (`VISION_NORMALIZE_CUTOUT`, activada por defecto).
   - **Balance de blancos:** ganancias de von Kries en RGB lineal estimadas con el fondo
     alrededor de la prenda. Solo se aplican si ese fondo es casi neutro (croma mediana entre 4 y
@@ -174,6 +222,12 @@ ficheros `LICENSE` de GitHub y en los metadatos de los paquetes instalados.
 | Máscara por caja | `facebook/sam2.1-hiera-small` @ `ee5bba1d82bb` (transformers 5.24) | Apache-2.0 | SA-1B. Al cargar aparece un aviso inocuo de transformers ("sam2_video → sam2"): el checkpoint incluye las capas de vídeo y solo se usan las de imagen. |
 | Quitar fondo | rembg 2.0.87 · `isnet-general-use` | MIT (rembg) / Apache-2.0 (IS-Net) | **Entrenado con DIS5K, cuyos términos dicen *"non-commercial use in research or educational purpose"*. Cuestión legal ABIERTA: no está claro si esas restricciones del dataset afectan a los pesos. No se puede dar por resuelta.** Lo mismo ocurre con BiRefNet. |
 | OCR | EasyOCR 1.7.2 (es, en) | Apache-2.0; detector CRAFT MIT | Se descarga en el primer uso de `/v1/ocr`. |
+| Color de borde del recorte | pymatting 1.1.16 (`estimate_foreground_ml`) | MIT (código; no tiene pesos) | Algoritmo clásico, sin datos de entrenamiento. Ya era dependencia de rembg; ahora se declara en `pyproject.toml`. |
+
+La limpieza del recorte (2026-11-24) **no añade modelos**: reutiliza Grounding DINO tiny, SAM 2.1
+small y FashionSigLIP, ya cargados. Grounding DINO pasa a usarse también en `single` con una lista
+cerrada de soportes (percha, maniquí, cabeza de maniquí, tendedero, pinza, gancho), solo como
+propuesta de regiones que después verifica FashionSigLIP.
 
 **Descartados:**
 
@@ -275,22 +329,34 @@ umbral, el atributo es `null` o queda fuera de la lista.
 |---|---|
 | Categoría: acierto (cobertura) | 95,9 % (100 %) / 92,9 % (100 %) |
 | Subcategoría: acierto cuando responde (cobertura) | 93,3 % (91,8 %) / 92,6 % (96,4 %) |
-| Estampado: acierto cuando responde (cobertura) | 91,4 % (85,4 %) / 89,5 % (86,4 %) |
-| Color principal en familia aceptada / en el top-3 | 70,2 % / 83,0 % |
+| Estampado: acierto cuando responde (cobertura) | 88,6 % (85,4 %) / 85,0 % (90,9 %) |
+| Color principal en familia aceptada / en el top-3 | 74,5 % / 83,0 % |
 | Multi: recall / precisión por categoría | 82,1 % / 63,9 % |
 | Texto español → prenda (70 clases, top-1) | 91,8 % traducido frente a 85,7 % sin traducir |
-| Latencia single p50 / p95 (MPS, en caliente) | 619 / 998 ms |
-| Latencia multi p50 / p95 (MPS, en caliente) | 1105 / 1598 ms |
+| Halo en el borde del recorte (ΔL* mediana borde semitransparente − interior opaco) | 10,9 (18,8 antes) |
+| Latencia single p50 / p95 (MPS, en caliente) | 786 / 1090 ms (634 / 1042 antes de la limpieza del recorte) |
+| Latencia multi p50 / p95 (MPS, en caliente) | 1132 / 1653 ms (1073 / 1601 antes) |
 | Arranque en frío (cargar todos los modelos ya descargados) | ≈ 13–25 s |
 
-Las latencias en CPU sin MPS ni CoreML aparecen en la evidencia.
+Las latencias en CPU sin MPS ni CoreML aparecen en la evidencia. La tabla es la del 2026-11-24
+tras la limpieza del recorte; la comparación antes/después, con las mismas 58 fotos y la misma
+máquina, está en [`recortes-2026-11-24.md`](evidence/recortes-2026-11-24.md): categoría,
+subcategoría y multi no cambian; estampado −1 foto (abstención), color principal +1 foto neta.
 
 ## 6. Limitaciones conocidas
 
-- **Ropa puesta.** SAM a veces incluye piel o piernas en la máscara de una falda o un pantalón, o
-  se queda solo con una parte (la capucha de una sudadera se clasificó como gorro). La prenda
-  principal de un outfit es ambigua. Para recortes limpios conviene pedir al usuario la prenda
-  plana o colgada.
+- **Ropa puesta.** SAM a veces incluye piel, pelo, brazos o piernas en la máscara de una prenda,
+  o se queda solo con una parte (la capucha de una sudadera se clasificó como gorro). Las capas
+  quitan otra *prenda* reconocida (los vaqueros bajo el plumífero), pero no partes del cuerpo: no
+  se detectan personas por política. La prenda principal de un outfit es ambigua. Para recortes
+  limpios conviene pedir al usuario la prenda plana o colgada.
+- **Soportes que quedan.** La limpieza solo quita lo que FashionSigLIP reconoce con seguridad.
+  Quedan, por ejemplo: la percha de madera dentro del cuello de una cazadora (P(soporte) ≈ 0,25),
+  a veces la percha dentro de un plumífero, una pinza verde del tendedero, el gancho negro de un
+  expositor de camisetas y figuras u objetos que no son soportes (un muñeco de cartón junto a
+  unas zapatillas). En multi no se aplica: una cabeza de maniquí puede salir como ítem
+  "complemento" sin subcategoría. Un asa o una correa **fina que salga por el borde de la foto**
+  se quitaría como si fuera un tendedero.
 - **Multi.**
   - Se pierden prendas pequeñas o tapadas, como una camiseta bajo una chaqueta abierta o unas
     botas negras.
@@ -300,7 +366,7 @@ Las latencias en CPU sin MPS ni CoreML aparecen en la evidencia.
 - **Color.**
   - En fotos, el negro sale a menudo como "antracita" y el blanco a la sombra como "gris" o
     "celeste". Las familias neutras vecinas se confunden.
-  - Los soportes de exposición (cabezas de maniquí, perchas) pueden entrar en el recorte y en
+  - Los soportes de exposición que no se quitan (ver arriba) pueden entrar en el recorte y en
     los colores.
   - `colors` incluye hasta 3 colores; el principal acierta en el 70 % de los casos.
 - **Estampado.** Los tejidos de punto o canalé lisos se confunden con espiguilla o pata de gallo.
@@ -327,7 +393,11 @@ Las latencias en CPU sin MPS ni CoreML aparecen en la evidencia.
   (`PRELOAD_MODELS=true`).
 - **No se infiere ningún atributo de personas**: ni cuerpo, ni tono de piel, ni edad, ni género,
   ni identidad.
-  - El detector solo busca prendas.
+  - El detector busca prendas y, en fotos de prenda suelta, una lista cerrada de soportes
+    (percha, maniquí, cabeza de maniquí, tendedero, pinza, gancho). Nunca "person" ni "face".
+    "mannequin head" puede activarse sobre una cabeza real; por eso esas consultas no se usan
+    en fotos con la prenda puesta, solo proponen regiones que se **restan** del recorte, y no
+    aparecen en la respuesta.
   - Las clases "persona" y "partes del cuerpo" sirven únicamente para **descartar** recortes que
     no son prenda, y no aparecen en la respuesta.
   - `scene: worn` solo indica que la prenda está puesta.

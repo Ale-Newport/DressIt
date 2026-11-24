@@ -1,44 +1,41 @@
-import type { OutfitDto, OutfitItemDto, OutfitSlot } from '@dressit/shared';
-import { Image } from 'expo-image';
+import { composeFlatLay, type OutfitDto, type OutfitItemDto, type OutfitSlot } from '@dressit/shared';
 import { forwardRef } from 'react';
 import { type HostInstance, StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { colorHex, slotLabel, subcategoryLabel } from '@/lib/vocab';
 import { radius, useTheme } from '@/theme';
 
+import { CutoutImage } from './CutoutImage';
 import { GarmentSilhouette } from './GarmentSilhouette';
 import { garmentColor } from './GarmentTile';
 
 export type LayoutBox = OutfitDto['layout'][number];
 
-/**
- * Client fallback when the server sent no layout for a slot: a simple editorial
- * flat-lay grid (tops upper-left, bottoms lower-left, shoes bottom-right…).
- */
-const FALLBACK: Record<string, Omit<LayoutBox, 'slot'>> = {
-  outer: { x: 0.04, y: 0.04, w: 0.46, h: 0.5, z: 1 },
-  mid: { x: 0.08, y: 0.08, w: 0.4, h: 0.4, z: 2 },
-  base: { x: 0.12, y: 0.12, w: 0.36, h: 0.36, z: 3 },
-  one_piece: { x: 0.08, y: 0.06, w: 0.44, h: 0.8, z: 2 },
-  bottom: { x: 0.5, y: 0.06, w: 0.42, h: 0.6, z: 2 },
-  footwear: { x: 0.56, y: 0.7, w: 0.36, h: 0.24, z: 3 },
-};
+/** Width ÷ height of the picture that will be drawn for an item, when the API reports it. */
+function imageAspect(item: OutfitItemDto): number | null {
+  const img = item.garment?.image ?? item.candidateProduct?.image ?? null;
+  return img?.width && img?.height ? img.width / img.height : null;
+}
 
-export function computeLayout(items: OutfitItemDto[], layout: LayoutBox[] | null | undefined): Array<LayoutBox & { item: OutfitItemDto }> {
-  const bySlot = new Map((layout ?? []).map((l) => [l.slot, l]));
-  let accessoryIndex = 0;
-  return items
-    .filter((it) => it.garment || it.candidateProduct)
-    .map((item) => {
-      const fromServer = bySlot.get(item.slot);
-      if (fromServer) return { ...fromServer, item };
-      if (item.slot.startsWith('accessory:')) {
-        const i = accessoryIndex++;
-        return { slot: item.slot, x: 0.06 + (i % 3) * 0.16, y: 0.7 + Math.floor(i / 3) * 0.14, w: 0.15, h: 0.15, z: 4, item };
-      }
-      const fb = FALLBACK[item.slot] ?? { x: 0.3, y: 0.3, w: 0.4, h: 0.4, z: 1 };
-      return { slot: item.slot, ...fb, item };
-    })
+/**
+ * Flat-lay boxes for the actual canvas: the shared composer (same one the server uses) with
+ * this canvas' aspect ratio and each cutout's real proportions, so pieces keep their relative
+ * size and never overlap. Sorted by z so later pieces render on top.
+ */
+export function computeLayout(items: OutfitItemDto[], canvasAspect = 4 / 5): Array<LayoutBox & { item: OutfitItemDto }> {
+  const present = items.filter((it) => it.garment || it.candidateProduct);
+  const bySlot = new Map(present.map((it) => [it.slot, it]));
+  return composeFlatLay(
+    present.map((it) => ({
+      key: it.slot,
+      slot: it.slot,
+      category: it.garment?.category ?? it.candidateProduct?.category ?? null,
+      subcategory: it.garment?.subcategory ?? it.candidateProduct?.subcategory ?? null,
+      aspect: imageAspect(it),
+    })),
+    { canvasAspect },
+  )
+    .map(({ key, x, y, w, h, z }) => ({ slot: key as OutfitSlot, x, y, w, h, z, item: bySlot.get(key as OutfitSlot)! }))
     .sort((a, b) => a.z - b.z);
 }
 
@@ -53,7 +50,7 @@ export function describeOutfitItems(items: OutfitItemDto[]): string {
 
 export interface OutfitCanvasProps {
   items: OutfitItemDto[];
-  layout?: LayoutBox[] | null;
+  /** Canvas width ÷ height (the composition adapts to it). */
   aspectRatio?: number;
   style?: ViewStyle;
   testID?: string;
@@ -63,16 +60,16 @@ export interface OutfitCanvasProps {
 }
 
 /**
- * Flat-lay renderer. Positions use the server's normalised (0–1) boxes as
- * percentages so no measuring pass is needed; cutouts render with `contain`,
- * garments without image render as colour silhouettes.
+ * Flat-lay renderer. Boxes are normalised (0–1) and applied as percentages, so no measuring
+ * pass is needed; cutouts render whole with a soft outline shadow, garments without image
+ * render as colour silhouettes.
  */
 export const OutfitCanvas = forwardRef<HostInstance, OutfitCanvasProps>(function OutfitCanvas(
-  { items, layout, aspectRatio = 4 / 5, style, testID = 'outfit-canvas', accessibilityLabel, highlightSlot },
+  { items, aspectRatio = 4 / 5, style, testID = 'outfit-canvas', accessibilityLabel, highlightSlot },
   ref,
 ) {
   const { colors } = useTheme();
-  const boxes = computeLayout(items, layout);
+  const boxes = computeLayout(items, aspectRatio);
   return (
     <View
       ref={ref}
@@ -93,26 +90,13 @@ export const OutfitCanvas = forwardRef<HostInstance, OutfitCanvasProps>(function
             testID={`${testID}-item-${b.slot}`}
             style={[
               styles.item,
-              {
-                left: pct(b.x),
-                top: pct(b.y),
-                width: pct(b.w),
-                height: pct(b.h),
-                zIndex: Math.round(b.z),
-              },
+              { left: pct(b.x), top: pct(b.y), width: pct(b.w), height: pct(b.h), zIndex: Math.round(b.z) },
               highlightSlot === b.slot && { borderColor: colors.accent, borderWidth: 2, borderRadius: radius.sm },
               p && !g && { borderColor: colors.accent, borderWidth: 1, borderStyle: 'dashed', borderRadius: radius.sm },
             ]}
           >
             {image ? (
-              <Image
-                source={{ uri: image.isCutout ? image.url : image.thumbUrl || image.url, cacheKey: `img-${image.id}-${image.isCutout ? 'cutout' : 'thumb'}` }}
-                style={StyleSheet.absoluteFill}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-                transition={120}
-                accessible={false}
-              />
+              <CutoutImage image={image} variant={image.isCutout ? 'full' : 'thumb'} style={image.isCutout ? undefined : styles.photo} />
             ) : (
               <GarmentSilhouette
                 testID={`${testID}-item-${b.slot}-silhouette`}
@@ -131,4 +115,5 @@ export const OutfitCanvas = forwardRef<HostInstance, OutfitCanvasProps>(function
 const styles = StyleSheet.create({
   canvas: { width: '100%', borderRadius: radius.lg, overflow: 'hidden' },
   item: { position: 'absolute' },
+  photo: { borderRadius: radius.sm, overflow: 'hidden' },
 });

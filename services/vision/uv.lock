@@ -3,8 +3,8 @@ revision = 5
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'linux'",
-    "python_full_version < '3.12' and sys_platform == 'linux'",
     "python_full_version >= '3.12' and sys_platform != 'linux'",
+    "python_full_version < '3.12' and sys_platform == 'linux'",
     "python_full_version < '3.12' and sys_platform != 'linux'",
 ]
 
@@ -168,6 +168,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pillow-heif" },
     { name = "pydantic" },
+    { name = "pymatting" },
     { name = "python-multipart" },
     { name = "rembg" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -198,6 +199,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11.0" },
     { name = "pillow-heif", specifier = ">=0.20" },
     { name = "pydantic", specifier = ">=2.9" },
+    { name = "pymatting", specifier = ">=1.1.12" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "rembg", specifier = ">=2.0.60" },
     { name = "scipy", specifier = ">=1.14" },

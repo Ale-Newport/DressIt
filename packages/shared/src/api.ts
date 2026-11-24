@@ -789,6 +789,23 @@ export interface RetailerIntegrationDto {
   requires: string | null;
   lastCheckedAt: string | null;
   lastCheckResult: string | null;
+  /**
+   * Official catalog sources for this retailer (affiliate feeds / product APIs) and their honest state:
+   * pending_credentials (env credentials or advertiser id missing), configured (ready, not ingested yet),
+   * operational (last ingestion succeeded), error (last ingestion failed), unsupported (no adapter).
+   */
+  catalogSources?: CatalogSourceStatusDto[];
+}
+
+export type CatalogSourceStatus = 'pending_credentials' | 'configured' | 'operational' | 'error' | 'unsupported';
+
+export interface CatalogSourceStatusDto {
+  provider: string;
+  status: CatalogSourceStatus;
+  detail: string;
+  /** Name of the env var that enables the adapter (never its value). */
+  credentialsEnv: string | null;
+  lastSyncAt: string | null;
 }
 
 export interface ProductSummaryDto {
@@ -923,6 +940,40 @@ export interface OutboundLinkResponse {
 export interface AssistantMessageRequest {
   conversationId?: string;
   text: string;
+  /**
+   * Optional reading of `text` made on the user's device (Apple Intelligence, on-device model).
+   * The server treats it as a hint: its own rules win, and every field must be grounded in the
+   * text (a city, a garment or a number the user did not write is discarded).
+   */
+  deviceIntent?: DeviceIntent;
+}
+
+/** Structured reading of an assistant request produced by the on-device model. */
+export interface DeviceIntent {
+  kind: 'outfit' | 'trip' | 'shopping' | 'gaps' | 'weather' | 'count' | 'other';
+  /** Relative day; `weekday` / `dayOfMonth` complete `dia_semana` / `fecha`. */
+  when: 'hoy' | 'manana' | 'pasado_manana' | 'dia_semana' | 'fecha' | 'sin_fecha';
+  weekday?: 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo' | null;
+  dayOfMonth?: number | null;
+  /** Occasion id from the vocabulary. */
+  occasion?: string | null;
+  /** −1 more casual … +1 more formal. */
+  formality?: number;
+  /** −1 lighter … +1 warmer. */
+  warmth?: number;
+  destination?: string | null;
+  days?: number | null;
+  /** Subcategory id from the vocabulary. */
+  subcategory?: string | null;
+  color?: string | null;
+  /** Euros. */
+  maxPrice?: number | null;
+  /** A specific owned garment, copied from the text ("mis pantalones negros"). */
+  garmentPhrase?: string | null;
+  /** Subcategory ids the user does not want. */
+  exclude?: string[];
+  /** Model that produced it, for transparency (e.g. "apple-foundation-models"). */
+  model?: string;
 }
 
 export type AssistantCard =
@@ -938,7 +989,8 @@ export interface AssistantMessageResponse {
   reply: string;
   cards: AssistantCard[];
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
-  engine: 'rules' | 'llm';
+  /** `device`: the on-device reading of the request was used (the reply is still built from real function calls). */
+  engine: 'rules' | 'llm' | 'device';
 }
 
 // ---------------------------------------------------------------------------

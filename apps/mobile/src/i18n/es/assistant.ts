@@ -24,6 +24,7 @@ export default {
   engine: {
     rules: 'Respuesta basada en reglas de estilo (sin IA externa)',
     llm: 'Respuesta generada con un modelo de lenguaje',
+    device: 'Entendido con Apple Intelligence en tu iPhone; respuesta con tus datos reales',
   },
   error: {
     failed: 'No se ha enviado.',

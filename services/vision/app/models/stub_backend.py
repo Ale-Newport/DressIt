@@ -68,7 +68,9 @@ class StubBackend:
         mask = np.asarray(Image.fromarray((diff * 255).astype(np.uint8)).resize((w, h), Image.Resampling.NEAREST))
         return mask.astype(np.float32) / 255.0
 
-    def detect(self, image: Image.Image, queries: Sequence[str], threshold: float) -> list[Detection]:
+    def detect(
+        self, image: Image.Image, queries: Sequence[str], threshold: float, *, short_side: int | None = None
+    ) -> list[Detection]:
         mask = self.remove_background(image) > 0.5
         labels, n = ndimage.label(mask)
         out: list[Detection] = []

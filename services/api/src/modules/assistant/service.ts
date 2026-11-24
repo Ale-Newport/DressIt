@@ -3,6 +3,10 @@
  * parser that calls the same structured functions as the app (recommendations,
  * wardrobe, weather, catalog, gaps, trips). It never invents garments, products or
  * personal circumstances: every card comes from a real function call.
+ *
+ * The app may add a `deviceIntent`: the same request read by the on-device model (Apple
+ * Intelligence). It only fills what the rules did not find, and each field must be grounded in
+ * the user's text (see `groundDeviceIntent`), so a hallucinated city or garment is dropped.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -10,6 +14,7 @@ import {
   getSubcategory,
   type AssistantCard,
   type AssistantMessageResponse,
+  type DeviceIntent,
   type GarmentDto,
   type RecommendationRequest,
 } from '@dressit/shared';
@@ -142,20 +147,104 @@ interface Turn {
   reply: string;
   cards: AssistantCard[];
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  /** The on-device reading filled something the rules did not. */
+  usedDevice: boolean;
 }
 
-export async function handleMessage(app: AppContext, trx: Tx, userId: string, text: string): Promise<Turn> {
+/** Device intent reduced to fields the user's text supports (anything else is dropped). */
+export interface GroundedIntent {
+  kind: DeviceIntent['kind'] | null;
+  date: string | null;
+  occasion: string | null;
+  formality: -1 | 0 | 1;
+  warmth: -1 | 0 | 1;
+  destination: string | null;
+  days: number | null;
+  subcategory: string | null;
+  color: string | null;
+  maxPrice: number | null;
+  garmentPhrase: string | null;
+  exclude: string[];
+}
+
+const EMPTY_INTENT: GroundedIntent = { kind: null, date: null, occasion: null, formality: 0, warmth: 0, destination: null, days: null, subcategory: null, color: null, maxPrice: null, garmentPhrase: null, exclude: [] };
+const KINDS = new Set<DeviceIntent['kind']>(['outfit', 'trip', 'shopping', 'gaps', 'weather', 'count', 'other']);
+const WEEKDAY_IDS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+const unit = (v: number | undefined): -1 | 0 | 1 => (v === undefined ? 0 : v >= 0.5 ? 1 : v <= -0.5 ? -1 : 0);
+const fold = (s: string) => norm(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** A subcategory counts as mentioned if one of its ≥4-letter words (id or label, singular or plural) is in the text. */
+function mentionsSubcategory(text: string, id: string): boolean {
+  const sub = getSubcategory(id);
+  if (!sub) return false;
+  const words = [...id.split('_'), ...fold(sub.label).split(/\s+/)].filter((w) => w.length >= 4);
+  return words.some((w) => new RegExp(`\\b${w}(s|es)?\\b`).test(text));
+}
+
+/**
+ * Keep only what the on-device model read that the text actually supports: valid vocabulary ids,
+ * a destination / garment phrase / price that appear in the text, dates resolved here (the model
+ * only names the day), and style adjustments only when the text talks about formality or warmth.
+ */
+export function groundDeviceIntent(intent: DeviceIntent | null, text: string, today: string): GroundedIntent {
+  if (!intent) return EMPTY_INTENT;
+  const t = fold(text);
+  const out: GroundedIntent = { ...EMPTY_INTENT, exclude: [] };
+  if (KINDS.has(intent.kind) && intent.kind !== 'other') out.kind = intent.kind;
+
+  if (intent.when === 'hoy' && /\bhoy\b|esta (tarde|noche|manana)|ahora/.test(t)) out.date = today;
+  else if (intent.when === 'manana' && /\bmanana\b/.test(t)) out.date = addDays(today, 1);
+  else if (intent.when === 'pasado_manana' && /pasado manana/.test(t)) out.date = addDays(today, 2);
+  else if (intent.when === 'dia_semana' && intent.weekday && t.includes(intent.weekday)) {
+    const wd = WEEKDAY_IDS.indexOf(intent.weekday);
+    if (wd >= 0) out.date = addDays(today, (wd - new Date(`${today}T12:00:00Z`).getUTCDay() + 7) % 7 || 7);
+  } else if (intent.when === 'fecha' && intent.dayOfMonth && intent.dayOfMonth >= 1 && intent.dayOfMonth <= 31 && new RegExp(`\\b${intent.dayOfMonth}\\b`).test(t)) {
+    const [y, m, day] = today.split('-').map(Number) as [number, number, number];
+    const target = intent.dayOfMonth >= day ? new Date(Date.UTC(y, m - 1, intent.dayOfMonth, 12)) : new Date(Date.UTC(y, m, intent.dayOfMonth, 12));
+    if (target.getUTCDate() === intent.dayOfMonth) out.date = target.toISOString().slice(0, 10);
+  }
+
+  if (intent.occasion && getOccasion(intent.occasion)) out.occasion = intent.occasion;
+  if (/formal|arreglad|elegant|informal|comod|relajad|sport|deportiv|de gala/.test(t)) out.formality = unit(intent.formality);
+  if (/frio|abrig|calor|fresc|ligero|helad|congel|templad/.test(t)) out.warmth = unit(intent.warmth);
+
+  const dest = intent.destination?.trim();
+  if (dest && dest.length <= 60 && t.includes(fold(dest))) out.destination = dest.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+  if (intent.days && intent.days >= 1 && intent.days <= 30 && (new RegExp(`\\b${intent.days}\\b`).test(t) || Object.entries(NUMBERS).some(([w, n]) => n === intent.days && new RegExp(`\\b${w}\\b`).test(t)))) out.days = intent.days;
+
+  if (intent.subcategory && mentionsSubcategory(t, intent.subcategory)) out.subcategory = intent.subcategory;
+  if (intent.color && t.includes(fold(intent.color).slice(0, 4))) out.color = colorFamilyFromText(intent.color);
+  if (intent.maxPrice && intent.maxPrice > 0 && new RegExp(`\\b${Math.round(intent.maxPrice)}\\b`).test(t)) out.maxPrice = Math.round(intent.maxPrice);
+  const phrase = intent.garmentPhrase?.trim();
+  if (phrase && phrase.length <= 80 && t.includes(fold(phrase))) out.garmentPhrase = phrase;
+  out.exclude = [...new Set((intent.exclude ?? []).filter((id) => mentionsSubcategory(t, id)))];
+  return out;
+}
+
+export async function handleMessage(app: AppContext, trx: Tx, userId: string, text: string, deviceIntent?: DeviceIntent | null): Promise<Turn> {
   const t = norm(text.trim());
   const user = await trx.selectFrom('users').select(['timezone', 'location_lat']).where('id', '=', userId).executeTakeFirstOrThrow();
   const today = todayIn(user.timezone);
   const toolCalls: Turn['toolCalls'] = [];
+  const d = groundDeviceIntent(deviceIntent ?? null, text, today);
+  let usedDevice = false;
+  const turn = await route();
+  return { ...turn, usedDevice };
+
+  async function route(): Promise<Omit<Turn, 'usedDevice'>> {
 
   // 1. Trip planning
-  if (/viaje|viajar|maleta|equipaje/.test(t) && /d[ií]as?|semana|fin de semana/.test(t)) {
-    const days = /fin de semana/.test(t) ? 3 : /semana/.test(t) && !/d[ií]as?/.test(t) ? 7 : (parseNumber(t) ?? 3);
-    const dest = /\b(?:a|en|para)\s+([A-ZÁÉÍÓÚÑ][\p{L}\s-]{2,40}?)(?=[.,?!]|$|\s+(?:del|desde|en|el|la|con|por)\b)/u.exec(text.trim())?.[1]?.trim();
+  const ruleTrip = /viaje|viajar|maleta|equipaje/.test(t) && /d[ií]as?|semana|fin de semana|finde/.test(t);
+  if (ruleTrip || (d.kind === 'trip' && d.destination)) {
+    if (!ruleTrip) usedDevice = true;
+    const ruleDays = /fin de semana|finde/.test(t) ? 3 : /semana/.test(t) && !/d[ií]as?/.test(t) ? 7 : parseNumber(t);
+    const days = ruleDays ?? d.days ?? 3;
+    if (ruleDays === null && d.days) usedDevice = true;
+    const ruleDest = /\b(?:a|en|para)\s+([A-ZÁÉÍÓÚÑ][\p{L}\s-]{2,40}?)(?=[.,?!]|$|\s+(?:del|desde|en|el|la|con|por)\b)/u.exec(text.trim())?.[1]?.trim();
+    const dest = ruleDest ?? d.destination;
+    if (!ruleDest && dest) usedDevice = true;
     if (!dest) return { reply: '¿A qué ciudad vas? Dímelo para consultar la previsión, por ejemplo: «viaje de cuatro días a Madrid».', cards: [], toolCalls };
-    const start = parseDate(t, today) ?? addDays(today, 1);
+    const start = parseDate(t, today) ?? d.date ?? addDays(today, 1);
     toolCalls.push({ name: 'geocode', args: { q: dest } });
     let place;
     try {
@@ -176,11 +265,15 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
   }
 
   // 2. Shopping: product search in authorised catalogs
-  if (/encuentra|busca|b[uú]scame|quiero comprar|d[oó]nde comprar/.test(t)) {
-    const guess = inferSubcategory(t);
-    const color = colorFamilyFromText(t);
-    const max = /(?:menos de|m[aá]ximo|hasta)\s*(\d{1,4})\s*(?:€|euros)/.exec(t);
-    const query = { subcategory: guess?.subcategory, color: color ?? undefined, maxPrice: max ? Number(max[1]) : undefined, inStock: true, limit: 30 };
+  const ruleShopping = /encuentra|busca|b[uú]scame|quiero comprar|d[oó]nde comprar/.test(t);
+  if (ruleShopping || d.kind === 'shopping') {
+    if (!ruleShopping) usedDevice = true;
+    const guess = inferSubcategory(t)?.subcategory ?? d.subcategory;
+    const color = colorFamilyFromText(t) ?? d.color;
+    const maxMatch = /(?:menos de|m[aá]ximo|hasta)\s*(\d{1,4})\s*(?:€|euros)/.exec(t);
+    const maxPrice = maxMatch ? Number(maxMatch[1]) : d.maxPrice;
+    if ((!inferSubcategory(t) && guess) || (!colorFamilyFromText(t) && color) || (!maxMatch && maxPrice)) usedDevice = true;
+    const query = { subcategory: guess ?? undefined, color: color ?? undefined, maxPrice: maxPrice ?? undefined, inStock: true, limit: 30 };
     toolCalls.push({ name: 'search_catalog', args: query });
     const res = await searchCatalog(trx, query, app.cfg.PRICE_FRESHNESS_HOURS);
     if (!res.items.length) {
@@ -192,11 +285,13 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
       };
     }
     const ranked = res.items.filter((p) => productToCandidate(p).garment).slice(0, 8);
-    return { reply: `He encontrado ${res.items.length} producto${res.items.length === 1 ? '' : 's'} en catálogos autorizados${max ? ` por menos de ${max[1]} €` : ''}. Pulsa «Ver cómo combinarlo» para simularlo con tu armario.`, cards: [{ type: 'products', products: ranked, emptyReason: null }], toolCalls };
+    return { reply: `He encontrado ${res.items.length} producto${res.items.length === 1 ? '' : 's'} en catálogos autorizados${maxPrice ? ` por menos de ${maxPrice} €` : ''}. Pulsa «Ver cómo combinarlo» para simularlo con tu armario.`, cards: [{ type: 'products', products: ranked, emptyReason: null }], toolCalls };
   }
 
   // 3. What to buy / wardrobe gaps
-  if (/(qu[eé] (deber[ií]a|me falta|necesito) comprar|qu[eé] me falta|completar mi armario|m[aá]s conjuntos)/.test(t)) {
+  const ruleGaps = /(qu[eé] (deber[ií]a|me falta|necesito) comprar|qu[eé] me falta|completar mi armario|m[aá]s conjuntos)/.test(t);
+  if (ruleGaps || d.kind === 'gaps') {
+    if (!ruleGaps) usedDevice = true;
     toolCalls.push({ name: 'wardrobe_gaps', args: {} });
     const g = await gaps(app, trx, userId);
     if (!g.length) return { reply: 'Necesito conocer más prendas de tu armario para analizar qué te falta. Añade al menos unas cuantas.', cards: [], toolCalls };
@@ -204,8 +299,10 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
   }
 
   // 4. Weather
-  if (/tiempo|llover|lluvia|temperatura|fr[ií]o|calor/.test(t) && !/qu[eé] me pongo|outfit|conjunto|ropa/.test(t)) {
-    const date = parseDate(t, today) ?? today;
+  const ruleWeather = /tiempo|llover|lluvia|temperatura|fr[ií]o|calor/.test(t) && !/qu[eé] me pongo|outfit|conjunto|ropa|dame|algo/.test(t);
+  if (ruleWeather || d.kind === 'weather') {
+    if (!ruleWeather) usedDevice = true;
+    const date = parseDate(t, today) ?? d.date ?? today;
     if (user.location_lat === null) return { reply: 'Configura tu ciudad en el perfil y te digo el tiempo.', cards: [], toolCalls };
     toolCalls.push({ name: 'weather', args: { date } });
     const rec = await recommend(app, trx, userId, { date, count: 1 });
@@ -215,14 +312,21 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
 
   // 5. Outfits (default intent)
   // Any clothing request or a plan/occasion mention ("tengo una cena formal…") is an outfit request.
-  const isOutfitIntent = /qu[eé] me pongo|outfit|conjunto|look|vestir|ponerme|llevar|combin|algo (m[aá]s )?(elegante|formal|informal|c[oó]modo|abrigado)|ens[eé][nñ]ame/.test(t) || parseOccasion(t) !== null;
-  if (isOutfitIntent) {
-    const date = parseDate(t, today) ?? today;
-    const occasion = parseOccasion(t) ?? undefined;
+  const ruleOutfit = /qu[eé] me pongo|outfit|conjunto|look|vestir|ponerme|llevar|combin|algo (m[aá]s )?(elegante|formal|informal|c[oó]modo|abrigado)|ens[eé][nñ]ame/.test(t) || parseOccasion(t) !== null;
+  if (ruleOutfit || d.kind === 'outfit') {
+    if (!ruleOutfit) usedDevice = true;
+    const ruleDate = parseDate(t, today);
+    const date = ruleDate ?? d.date ?? today;
+    const ruleOccasion = parseOccasion(t);
+    const occasion = ruleOccasion ?? d.occasion ?? undefined;
+    if ((!ruleDate && d.date) || (!ruleOccasion && d.occasion)) usedDevice = true;
     const style = STYLE_WORDS.find(([re]) => re.test(t))?.[1];
-    const garments = /\bcon (mi|mis|el|la|los|las)\b/.test(t) ? await resolveGarments(app, trx, t, today) : [];
-    if (/\bcon (mi|mis|el|la|los|las)\b/.test(t) && !garments.length) {
-      return { reply: 'No encuentro esa prenda en tu armario. ¿Puedes describirla de otra forma o añadirla primero?', cards: [], toolCalls: [{ name: 'find_garments', args: { text: t } }] };
+    const ruleRef = /\bcon (mi|mis|el|la|los|las)\b/.test(t);
+    const refText = ruleRef ? t : d.garmentPhrase ? `con ${norm(d.garmentPhrase)}` : null;
+    if (!ruleRef && refText) usedDevice = true;
+    const garments = refText ? await resolveGarments(app, trx, refText, today) : [];
+    if (refText && !garments.length) {
+      return { reply: 'No encuentro esa prenda en tu armario. ¿Puedes describirla de otra forma o añadirla primero?', cards: [], toolCalls: [{ name: 'find_garments', args: { text: refText } }] };
     }
     const count = Math.min(Math.max(/ens[eé][nñ]ame|dame|prop[oó]n/.test(t) ? (parseNumber(t) ?? 3) : 3, 1), 6);
     const req: RecommendationRequest = {
@@ -230,13 +334,14 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
       ...(occasion ? { occasion } : {}),
       count,
       adjustments: {
-        formality: /m[aá]s formal|formal/.test(t) && !/informal/.test(t) ? 1 : /informal|c[oó]modo|relajad/.test(t) ? -1 : 0,
-        warmth: /abrigad|calent/.test(t) ? 1 : /fresc|ligero/.test(t) ? -1 : 0,
+        formality: (/m[aá]s formal|formal/.test(t) && !/informal/.test(t) ? 1 : /informal|c[oó]modo|relajad/.test(t) ? -1 : 0) || d.formality,
+        warmth: (/abrigad|calent/.test(t) ? 1 : /fresc|ligero/.test(t) ? -1 : 0) || d.warmth,
         elegance: /elegante|arreglad/.test(t) || style === 'clasico' || style === 'elegante' ? 1 : 0,
       },
       mustInclude: garments.slice(0, 1).map((g) => g.id),
-      excludeSubcategories: excludedSubcategories(t),
+      excludeSubcategories: [...new Set([...excludedSubcategories(t), ...d.exclude])],
     };
+    if (d.exclude.some((x) => !excludedSubcategories(t).includes(x))) usedDevice = true;
     toolCalls.push({ name: 'recommend_outfits', args: { ...req } });
     const rec = await recommend(app, trx, userId, req);
     if (!rec.outfits.length) return { reply: rec.warnings[0] ?? 'No he podido crear conjuntos con las prendas disponibles.', cards: [], toolCalls };
@@ -251,8 +356,8 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
   }
 
   // 6. Garment lookup ("¿cuántas camisas tengo?")
-  const sub = inferSubcategory(t);
-  if (sub && /tengo|mis|cu[aá]nt/.test(t)) {
+  const sub = inferSubcategory(t) ?? (d.kind === 'count' && d.subcategory ? { subcategory: d.subcategory } : null);
+  if (sub && (/tengo|mis|cu[aá]nt/.test(t) || d.kind === 'count')) {
     const rows = (await garmentSelect(trx).where('g.subcategory', '=', sub.subcategory).where('g.status', '!=', 'retired').limit(30).execute()) as GarmentRow[];
     toolCalls.push({ name: 'list_garments', args: { subcategory: sub.subcategory } });
     return { reply: `Tienes ${rows.length} prenda${rows.length === 1 ? '' : 's'} del tipo «${getSubcategory(sub.subcategory)?.label.toLowerCase()}».`, cards: rows.length ? [{ type: 'garments', garments: rows.map((r) => toGarmentDto(r, app.signer)) }] : [], toolCalls };
@@ -263,13 +368,14 @@ export async function handleMessage(app: AppContext, trx: Tx, userId: string, te
     cards: [],
     toolCalls,
   };
+  }
 }
 
-export async function converse(app: AppContext, trx: Tx, userId: string, body: { conversationId?: string; text: string }): Promise<AssistantMessageResponse> {
+export async function converse(app: AppContext, trx: Tx, userId: string, body: { conversationId?: string; text: string; deviceIntent?: DeviceIntent }): Promise<AssistantMessageResponse> {
   const conversationId = body.conversationId ?? randomUUID();
   const text = body.text.slice(0, 1000);
   await trx.insertInto('assistant_messages').values({ user_id: userId, conversation_id: conversationId, role: 'user', content: text }).execute();
-  const turn = await handleMessage(app, trx, userId, text);
+  const turn = await handleMessage(app, trx, userId, text, body.deviceIntent ?? null);
   await trx.insertInto('assistant_messages').values({ user_id: userId, conversation_id: conversationId, role: 'assistant', content: turn.reply, tool_calls: JSON.stringify(turn.toolCalls) }).execute();
-  return { conversationId, reply: turn.reply, cards: turn.cards, toolCalls: turn.toolCalls, engine: 'rules' };
+  return { conversationId, reply: turn.reply, cards: turn.cards, toolCalls: turn.toolCalls, engine: turn.usedDevice ? 'device' : 'rules' };
 }

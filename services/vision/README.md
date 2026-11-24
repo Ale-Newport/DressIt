@@ -58,6 +58,13 @@ Ver [`.env.example`](.env.example). Las principales:
 | `VISION_MAX_CONCURRENCY` | `2` | Análisis simultáneos (memoria) |
 | `VISION_THRESHOLD_*` | ver `app/config.py` | Umbrales de abstención por atributo |
 | `VISION_NORMALIZE_CUTOUT` | `true` | Balance de blancos/exposición suave del recorte |
+| `VISION_REMOVE_SUPPORTS` | `true` | Single: quitar perchas, maniquíes/cabezas, tendedero y pinzas del recorte |
+| `VISION_SUPPORT_MIN_PROB` / `VISION_SUPPORT_MIN_PROB_HEAD_FORM` | `0.5` / `0.25` | P(soporte) para quitar una región (la segunda, cabeza bajo un gorro) |
+| `VISION_SUPPORT_MAX_AREA` | `0.6` | Nunca se quita una región mayor que esa fracción del objeto |
+| `VISION_PROPOSAL_SHORT_SIDE` / `VISION_MAX_PROPOSALS` | `480` / `10` | Entrada del detector y nº de cajas para las propuestas de regiones |
+| `VISION_THIN_BORDER_RADIUS` | `0.003` | Estructuras finas que salen por el borde (tendedero); `0` lo desactiva |
+| `VISION_LAYER_SINGLE` | `true` | Capas también en single (restar los vaqueros de la chaqueta) |
+| `VISION_DECONTAMINATE_EDGES` | `true` | Recolorear los bordes semitransparentes (sin halo del fondo; pymatting) |
 
 ## Docker (CPU)
 

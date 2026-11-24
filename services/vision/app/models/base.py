@@ -41,8 +41,11 @@ class VisionBackend(Protocol):
     def remove_background(self, image: Image.Image) -> np.ndarray:
         """Foreground probability ``(H, W)`` float32 in [0, 1] for the salient object(s)."""
 
-    def detect(self, image: Image.Image, queries: Sequence[str], threshold: float) -> list[Detection]:
-        """Open-vocabulary garment detection (boxes in pixels of ``image``)."""
+    def detect(
+        self, image: Image.Image, queries: Sequence[str], threshold: float, *, short_side: int | None = None
+    ) -> list[Detection]:
+        """Open-vocabulary detection (boxes in pixels of ``image``). ``short_side`` lowers the
+        detector's input resolution (faster; used for single-mode region proposals)."""
 
     def segment_boxes(self, image: Image.Image, boxes: Sequence[tuple[float, float, float, float]]) -> list[np.ndarray]:
         """Box-prompted instance masks, one ``(H, W)`` float32 [0, 1] per box."""

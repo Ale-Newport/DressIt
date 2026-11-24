@@ -1,5 +1,4 @@
 import { ACCESSORY_SLOTS, type GarmentDto, type OutfitDto, type OutfitItemDto, type OutfitSlot } from '@dressit/shared';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -10,6 +9,7 @@ import { useCreateOutfit } from '@/api/hooks';
 import { OutfitCard } from '@/components/OutfitCard';
 import { validateBuilder } from '@/components/outfits/builderValidation';
 import { GarmentPickerSheet } from '@/components/outfits/GarmentPickerSheet';
+import { CutoutImage } from '@/components/ui/CutoutImage';
 import {
   Button,
   ChipGroup,
@@ -146,7 +146,7 @@ export default function OutfitBuilderScreen() {
           {t('builder.preview')}
         </Text>
         {items.length ? (
-          <OutfitCanvas items={items} layout={null} testID="outfit-builder-preview" />
+          <OutfitCanvas items={items} testID="outfit-builder-preview" />
         ) : (
           <PreviewEmpty />
         )}
@@ -239,12 +239,7 @@ function SlotRow({ slot, garment, onChoose, onRemove }: { slot: OutfitSlot; garm
       >
         <View style={[styles.slotThumb, { backgroundColor: colors.surfaceAlt, borderColor: colors.line }]}>
           {garment?.image ? (
-            <Image
-              source={{ uri: garment.image.thumbUrl || garment.image.url, cacheKey: `img-${garment.image.id}-thumb` }}
-              style={StyleSheet.absoluteFill}
-              contentFit={garment.image.isCutout ? 'contain' : 'cover'}
-              accessible={false}
-            />
+            <CutoutImage image={garment.image} inset={0.08} shadow={false} />
           ) : garment ? (
             <GarmentSilhouette category={garment.category} subcategory={garment.subcategory} color={garmentColor(garment)} />
           ) : (

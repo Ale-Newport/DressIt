@@ -87,7 +87,7 @@ export function PlanCard({ plan, conflictCount = 0, drag, onOpen, onMoveTo, onRe
         style={styles.main}
       >
         <View style={styles.canvas}>
-          <OutfitCanvas items={plan.outfit.items} layout={plan.outfit.layout} accessibilityLabel="" testID={`plan-card-${plan.id}-canvas`} />
+          <OutfitCanvas items={plan.outfit.items} accessibilityLabel="" testID={`plan-card-${plan.id}-canvas`} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="smallStrong" numberOfLines={2}>

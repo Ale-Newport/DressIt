@@ -11,6 +11,7 @@ import {
   EmptyState,
   GarmentTile,
   OfflineBanner,
+  OnDeviceSummary,
   QueryView,
   Screen,
   SectionHeader,
@@ -20,6 +21,7 @@ import {
   Text,
 } from '@/components/ui';
 import { formatMoney } from '@/lib/format';
+import { WARDROBE_SUMMARY_STYLE, wardrobeFacts } from '@/lib/summaries';
 import { categoryLabel, colorHex, colorLabel, seasonLabel, statusLabel, styleLabel, subcategoryLabel } from '@/lib/vocab';
 import { radius, space } from '@/theme';
 
@@ -68,6 +70,8 @@ function StatsBody({ stats: d }: { stats: WardrobeStatsDto }) {
         <Kpi label={t('stats.avgCpw')} value={d.avgCostPerWear ? formatMoney(d.avgCostPerWear) : '—'} />
         <Kpi label={t('stats.worn30')} value={String(d.outfitsWornLast30Days)} />
       </View>
+
+      <OnDeviceSummary title={t('stats.summary')} facts={wardrobeFacts(d)} style={WARDROBE_SUMMARY_STYLE} testID="stats-ondevice-summary" />
 
       <ChartSection title={t('stats.byCategory')} data={toBars(d.byCategory, categoryLabel)} />
       <ChartSection title={t('stats.byColor')} data={toBars(d.byColor, colorLabel, colorHex)} />

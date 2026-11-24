@@ -124,7 +124,7 @@ function Column({ side, id, query, onPick }: { side: Side; id?: string; query: R
       <Text variant="overline" tone="muted">
         {label}
       </Text>
-      <OutfitCanvas items={o.items} layout={o.layout} testID={`compare-canvas-${side}`} />
+      <OutfitCanvas items={o.items} testID={`compare-canvas-${side}`} />
       <Text variant="smallStrong" numberOfLines={2} onPress={() => router.push({ pathname: '/outfit/[id]', params: { id: o.id } })} accessibilityRole="link">
         {outfitTitle(o, t('card.untitled'))}
       </Text>

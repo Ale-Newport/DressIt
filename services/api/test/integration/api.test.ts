@@ -2,11 +2,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { OutfitDto, RecommendationResponse } from '@dressit/shared';
+import type { OutfitDto, RecommendationResponse, RetailerIntegrationDto } from '@dressit/shared';
 import { readFeed } from '../../src/modules/catalog/providers.ts';
 import { withUser } from '../../src/db/index.ts';
 import { runRetention } from '../../src/modules/maintenance/retention.ts';
 import { upsertFeedProducts } from '../../src/modules/catalog/service.ts';
+import { runIngestJob } from '../../src/modules/catalog/ingest.ts';
+import { parseRakutenProductSearch } from '../../src/modules/catalog/sources/rakuten.ts';
+import type { IngestJob } from '../../src/modules/catalog/sources/types.ts';
 import { multipart, registerUser, seedWardrobe, setupApp, startFixtureStore, testImage, visionState, weatherState, type TestApp } from './helpers.ts';
 
 let t: TestApp;
@@ -447,6 +450,68 @@ describe('catalog and personal shopper', () => {
   });
 });
 
+describe('official catalog sources (mocked adapters, synthetic fixtures)', () => {
+  const rakutenFixture = () => parseRakutenProductSearch(readFileSync(resolve(import.meta.dirname, '../fixtures/sources/rakuten-page-1.xml'), 'utf8')).products;
+  const job = (fetchImpl: IngestJob['fetch']): IngestJob => ({ sourceId: 'rakuten', provider: 'rakuten', network: 'rakuten', provenance: 'api', retailerId: 'mango', label: 'rakuten:mid=fixture', fetch: fetchImpl });
+  const mangoSources = async (auth: Record<string, string>) => {
+    const m = (await t.app.inject({ method: 'GET', url: '/v1/retailers', headers: auth })).json() as RetailerIntegrationDto[];
+    return m.find((r) => r.retailer.id === 'mango')!;
+  };
+  it('reports each official source honestly: disabled until credentials are set', async () => {
+    const u = await registerUser(t);
+    const m = (await t.app.inject({ method: 'GET', url: '/v1/retailers', headers: u.auth })).json() as RetailerIntegrationDto[];
+    const decathlon = m.find((r) => r.retailer.id === 'decathlon')!;
+    expect(decathlon.catalogSources).toEqual([expect.objectContaining({ provider: 'awin', status: 'pending_credentials', credentialsEnv: 'AWIN_PUBLISHER_ID', lastSyncAt: null })]);
+    expect(decathlon.notes).toMatch(/Catálogo awin: pendiente de credenciales/);
+    expect(decathlon.capabilities.catalogSearch).toBe(false);
+    expect(m.find((r) => r.retailer.id === 'desigual')!.catalogSources![0]).toMatchObject({ provider: 'tradetracker', status: 'unsupported' });
+    expect(m.find((r) => r.retailer.id === 'zara')!.catalogSources!.map((c) => c.status)).toEqual(['unsupported']);
+  });
+  it('ingests an API source with provenance, deactivates only vanished products and reports operational / error', async () => {
+    const u = await registerUser(t);
+    const products = rakutenFixture();
+    try {
+      const r1 = await runIngestJob(t.ctx.db, job(async () => ({ products, warnings: [] })));
+      expect(r1).toMatchObject({ ok: true, upserted: 2, deactivated: 0 });
+      const prices = await t.ctx.db.selectFrom('product_prices as pp').innerJoin('catalog_products as p', 'p.id', 'pp.product_id').select(['pp.source']).where('p.retailer_id', '=', 'mango').execute();
+      expect(prices.map((p) => p.source)).toEqual(['api', 'api']);
+      let mango = await mangoSources(u.auth);
+      expect(mango.status).toBe('operational');
+      expect(mango.capabilities).toMatchObject({ catalogSearch: true, affiliateLinks: true, images: true });
+      expect(mango.catalogSources![0]).toMatchObject({ provider: 'rakuten', status: 'operational', lastSyncAt: expect.any(String) });
+      const items = (await t.app.inject({ method: 'GET', url: '/v1/catalog/search?retailer=mango', headers: u.auth })).json().items;
+      expect(items).toHaveLength(2);
+      expect(items[0]).toMatchObject({ isAffiliate: true, isStale: false, image: { license: 'retailer_licensed' } });
+      const out = (await t.app.inject({ method: 'POST', url: '/v1/shopping/outbound', headers: u.auth, payload: { product: { kind: 'catalog', id: items[0].id } } })).json();
+      expect(out.disclosure).toMatch(/Enlace de afiliado.*No influye en el orden/);
+
+      const r2 = await runIngestJob(t.ctx.db, job(async () => ({ products: products.slice(0, 1), warnings: ['aviso de prueba'] })));
+      expect(r2).toMatchObject({ ok: true, deactivated: 1, warnings: ['aviso de prueba'] });
+
+      const r3 = await runIngestJob(t.ctx.db, job(async () => ({ products: [], warnings: [] })));
+      expect(r3.ok).toBe(false);
+      expect(r3.error).toMatch(/No se ha desactivado nada/);
+      const active = await t.ctx.db.selectFrom('catalog_products').select('id').where('retailer_id', '=', 'mango').where('is_active', '=', true).execute();
+      expect(active).toHaveLength(1);
+
+      await runIngestJob(t.ctx.db, job(async () => {
+        throw new Error('Rakuten Product Search API: HTTP 401 en https://api.linksynergy.com/productsearch/1.0?mid=1');
+      }));
+      mango = await mangoSources(u.auth);
+      expect(mango.catalogSources![0]).toMatchObject({ status: 'error', detail: expect.stringMatching(/HTTP 401/) });
+      expect(mango.notes).toMatch(/Catálogo rakuten: error en la última ingesta/);
+
+      const unknown = await runIngestJob(t.ctx.db, { ...job(async () => ({ products, warnings: [] })), retailerId: 'no_existe' });
+      expect(unknown).toMatchObject({ ok: false, error: expect.stringMatching(/Tienda desconocida/) });
+    } finally {
+      await t.ctx.db.deleteFrom('catalog_products').where('retailer_id', '=', 'mango').execute();
+      const ints = await t.ctx.db.selectFrom('retailer_integrations').select('id').where('retailer_id', '=', 'mango').execute();
+      await t.ctx.db.deleteFrom('catalog_sync_runs').where('integration_id', 'in', ints.map((i) => i.id)).execute();
+      await t.ctx.db.updateTable('retailer_integrations').set({ status: 'pending_authorization', last_check_result: null }).where('retailer_id', '=', 'mango').where('kind', '=', 'affiliate_feed').execute();
+    }
+  });
+});
+
 describe('assistant, trips and privacy', () => {
   it('answers outfit, shopping and trip requests using real functions', async () => {
     const u = await registerUser(t);
@@ -466,6 +531,28 @@ describe('assistant, trips and privacy', () => {
     expect(a4.cards[0].trip.capsule.length).toBeLessThanOrEqual(a4.cards[0].trip.maxItems);
     const a5 = await ask('¿Qué debería comprar para tener más conjuntos de invierno?');
     expect(['gaps', undefined]).toContain(a5.cards[0]?.type);
+  });
+  it('uses an on-device reading only where the rules found nothing and the text supports it', async () => {
+    const u = await registerUser(t);
+    await seedWardrobe(t, u.auth);
+    const ask = async (text: string, deviceIntent?: Record<string, unknown>) =>
+      (await t.app.inject({ method: 'POST', url: '/v1/assistant/messages', headers: u.auth, payload: { text, ...(deviceIntent ? { deviceIntent } : {}) } })).json();
+    // "la uni" is not in the rules' vocabulary: the device's "universidad" is used.
+    const uni = await ask('hace un frío que pela, dame algo abrigado para la uni', { kind: 'outfit', when: 'sin_fecha', occasion: 'universidad', warmth: 1, subcategory: 'abrigo', exclude: [] });
+    expect(uni.engine).toBe('device');
+    expect(uni.toolCalls[0].args.occasion).toBe('universidad');
+    expect(uni.toolCalls[0].args.adjustments.warmth).toBe(1);
+    // A trip phrased without "viaje": the destination is in the text, so a trip is planned.
+    const trip = await ask('me voy el finde a la playa a Valencia', { kind: 'trip', when: 'sin_fecha', destination: 'Valencia', days: 0 });
+    expect(trip.engine).toBe('device');
+    expect(trip.cards[0].type).toBe('trip');
+    expect(trip.cards[0].trip.days).toHaveLength(3);
+    // A hallucinated destination is ignored and the rules' answer stands.
+    const fake = await ask('¿Qué me pongo mañana para ir a trabajar?', { kind: 'trip', when: 'manana', destination: 'París', days: 5 });
+    expect(fake.engine).toBe('rules');
+    expect(fake.toolCalls[0].name).toBe('recommend_outfits');
+    // Invalid payloads are rejected.
+    expect((await t.app.inject({ method: 'POST', url: '/v1/assistant/messages', headers: u.auth, payload: { text: 'hola', deviceIntent: { kind: 'hack', when: 'hoy' } } })).statusCode).toBe(400);
   });
   it('exports all personal data and deletes the account permanently', async () => {
     const u = await registerUser(t);

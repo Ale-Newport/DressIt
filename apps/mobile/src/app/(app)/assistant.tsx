@@ -173,7 +173,7 @@ export default function AssistantScreen() {
                   <AssistantCardView key={`${m.id}-${i}`} card={card} testID={`assistant-card-${card.type}-${i}`} />
                 ))}
                 <Text variant="caption" tone="subtle">
-                  {m.engine === 'llm' ? t('engine.llm') : t('engine.rules')}
+                  {t(`engine.${m.engine}`)}
                 </Text>
               </View>
             ),

@@ -1,7 +1,7 @@
 import { File, Paths } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +9,7 @@ import { errorMessage } from '@/api/client';
 import { useDeleteAccount, useExportData } from '@/api/hooks/me';
 import { Button, Card, ConfirmDialog, ListRow, OfflineBanner, Screen, Text, useIsOnline, useToast } from '@/components/ui';
 import { today } from '@/lib/dates';
+import { intelligenceStatus, onDeviceAIEnabled, setOnDeviceAIEnabled, unavailableReason } from '@/lib/intelligence';
 import { useSession } from '@/state/session';
 import { space } from '@/theme';
 
@@ -31,6 +32,12 @@ export default function PrivacyScreen() {
   const deleteAccount = useDeleteAccount();
   const { forgetDevice } = useSession();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const aiStatus = intelligenceStatus();
+  const aiReason = unavailableReason(aiStatus);
+  const [aiOn, setAiOn] = useState(true);
+  useEffect(() => {
+    void onDeviceAIEnabled().then(setAiOn);
+  }, []);
 
   const doExport = () =>
     exportData.mutate(undefined, {
@@ -71,6 +78,19 @@ export default function PrivacyScreen() {
       </Card>
 
       <ListRow icon="check-square" title={t('privacy.consents')} onPress={() => router.push('/profile/consents')} />
+
+      <ListRow
+        icon="cpu"
+        title={t('privacy.onDeviceAI')}
+        subtitle={aiReason ?? t('privacy.onDeviceAIBody')}
+        switchValue={aiReason ? false : aiOn}
+        switchDisabled={!!aiReason}
+        onSwitchChange={(v) => {
+          setAiOn(v);
+          void setOnDeviceAIEnabled(v);
+        }}
+        testID="privacy-ondevice-ai"
+      />
 
       <Card tone="sunken">
         <View style={{ gap: space.sm }}>

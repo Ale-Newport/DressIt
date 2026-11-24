@@ -33,6 +33,29 @@ def clean_mask(prob: np.ndarray, threshold: float = 0.5, *, keep_ratio: float = 
     return mask
 
 
+def thin_border_structures(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Thin parts of ``mask`` (narrower than ~2·``radius``+1 px) that run into the image border.
+
+    A clothesline or a rail crosses the whole frame; the garment's own thin parts (straps,
+    chains, laces, a belt) end inside the photo and are kept. Only the thin pieces that
+    touch the border are returned — a strap cut by the frame is the accepted risk.
+    """
+    out = np.zeros(mask.shape, bool)
+    if radius < 1 or not mask.any():
+        return out
+    cross = ndimage.generate_binary_structure(2, 1)
+    # border_value=1: an object cut by the frame is not "thin" at the frame.
+    eroded = ndimage.binary_erosion(mask, cross, iterations=radius, border_value=1)
+    opened = ndimage.binary_dilation(eroded, cross, iterations=radius)
+    thin = mask & ~opened
+    if not thin.any():
+        return out
+    labels, n = ndimage.label(thin, structure=np.ones((3, 3), bool))
+    frame = np.concatenate([labels[:2].ravel(), labels[-2:].ravel(), labels[:, :2].ravel(), labels[:, -2:].ravel()])
+    hit = np.unique(frame[frame > 0])
+    return np.isin(labels, hit) if hit.size else out
+
+
 def mask_bbox(mask: np.ndarray) -> tuple[int, int, int, int] | None:
     ys = np.where(mask.any(axis=1))[0]
     xs = np.where(mask.any(axis=0))[0]
@@ -90,6 +113,96 @@ def make_cutout(
     if scale < 1.0:
         rgba = rgba.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
     return rgba
+
+
+def decontaminate_cutout(rgba: Image.Image) -> Image.Image:
+    """The returned cutout with its semi-transparent edge pixels recoloured (no background halo)."""
+    arr = np.asarray(rgba.convert("RGBA"))
+    rgb = decontaminate_edges(arr[:, :, :3], arr[:, :, 3])
+    return Image.fromarray(np.dstack([rgb, arr[:, :, 3]]), mode="RGBA")
+
+
+def decontaminate_edges(rgb: np.ndarray, alpha: np.ndarray, *, opaque: int = 250, work_side: int = 512) -> np.ndarray:
+    """Foreground colour at semi-transparent pixels (multilevel estimation, Germer et al. 2020,
+    ``pymatting.estimate_foreground_ml``, MIT).
+
+    The observed colour of an edge pixel mixes garment and old background, which shows as a
+    light or dark halo once the cutout is composited on another background. The estimate is
+    computed at ≤ ``work_side`` px (it is smooth; ~4× cheaper) and only edge pixels
+    (0 < alpha < ``opaque``) take it: opaque and transparent pixels keep their colour.
+    """
+    edge = (alpha > 0) & (alpha < opaque)
+    if not edge.any():
+        return rgb
+    from pymatting import estimate_foreground_ml  # rembg dependency; imported lazily (numba)
+
+    h, w = alpha.shape
+    scale = min(1.0, work_side / max(h, w))
+    if scale < 1.0:
+        size = (max(1, round(w * scale)), max(1, round(h * scale)))
+        img = np.asarray(Image.fromarray(rgb).resize(size, Image.Resampling.BILINEAR), dtype=np.float64) / 255.0
+        a = np.asarray(Image.fromarray(alpha).resize(size, Image.Resampling.BILINEAR), dtype=np.float64) / 255.0
+    else:
+        img, a = rgb.astype(np.float64) / 255.0, alpha.astype(np.float64) / 255.0
+    fg = estimate_foreground_ml(img, a, n_big_iterations=1)
+    fg8 = np.clip(np.round(fg * 255.0), 0, 255).astype(np.uint8)
+    if scale < 1.0:
+        fg8 = np.asarray(Image.fromarray(fg8).resize((w, h), Image.Resampling.BILINEAR))
+    out = rgb.copy()
+    out[edge] = fg8[edge]
+    return out
+
+
+def region_view(rgb: np.ndarray, mask: np.ndarray, side: int = 256) -> Image.Image:
+    """A masked region on white, padded to a square (cheap embedding input for verification)."""
+    x0, y0, x1, y1 = mask_bbox(mask) or (0, 0, mask.shape[1], mask.shape[0])
+    pad = int(round(0.04 * max(x1 - x0, y1 - y0)))
+    box = (x0 - pad, y0 - pad, x1 + pad, y1 + pad)
+    crop = crop_with_fill(rgb, box, 255).copy()
+    crop[~crop_with_fill(mask, box, False)] = 255
+    img = pad_to_square(Image.fromarray(crop))
+    return img.resize((side, side), Image.Resampling.BILINEAR) if img.size[0] > side else img
+
+
+def support_removal(
+    fg: np.ndarray,
+    parts: list[np.ndarray],
+    p_support: np.ndarray,
+    *,
+    min_prob: float,
+    max_area: float,
+    garment_max_prob: float = 0.3,
+    core_overlap: float = 0.5,
+) -> np.ndarray:
+    """Pixels of ``fg`` to remove because they belong to a display support.
+
+    ``parts`` are candidate regions (boolean masks inside ``fg``) and ``p_support`` the
+    probability that each one is a support (hanger, mannequin, clothesline, peg…). A
+    region is removed when ``p_support >= min_prob`` and it is at most ``max_area`` of the
+    foreground — except where it overlaps the *garment core*: the union of the regions
+    recognised as garment (``p_support < garment_max_prob``) that are not mostly the support
+    itself (overlap < ``core_overlap`` of the support region; a box around "hat + mannequin
+    head" protects neither). If the result would remove more than ``max_area`` of the
+    foreground, nothing is removed.
+    """
+    remove = np.zeros(fg.shape, bool)
+    total = int(fg.sum())
+    if total == 0 or not parts:
+        return remove
+    sizes = [int(p.sum()) for p in parts]
+    garments = [p for p, s, q in zip(parts, sizes, p_support) if q < garment_max_prob and s > 0]
+    for part, size, prob in zip(parts, sizes, p_support):
+        if prob < min_prob or size == 0 or size > max_area * total:
+            continue
+        core = np.zeros(fg.shape, bool)
+        for g in garments:
+            if np.logical_and(g, part).sum() < core_overlap * size:
+                core |= g
+        remove |= part & ~core
+    remove &= fg
+    if remove.sum() > max_area * total:
+        return np.zeros(fg.shape, bool)
+    return remove
 
 
 def embedding_view(cutout: Image.Image) -> Image.Image:

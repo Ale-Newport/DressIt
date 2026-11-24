@@ -2,6 +2,7 @@
 
 - **Fecha de la investigación:** 2026-11-24
 - **Alcance:** 21 retailers (7 marcas Inditex, El Corte Inglés, Sfera, Mango, H&M, Uniqlo, Springfield, Cortefiel, Pedro del Hierro, Zalando, ASOS, Decathlon, Nike, adidas) + Awin + eBay Browse API + otras fuentes.
+- **Actualización (mismo día):** la investigación de programas de afiliación por tienda, APIs de producto de las redes y proveedores multitienda, con la matriz vigente y los adaptadores implementados, está en [../comercios.md](../comercios.md); la guía de altas en [../conectar-tiendas.md](../conectar-tiendas.md).
 - **Reglas seguidas:** solo documentación pública, páginas públicas de programas, `robots.txt`, sitemaps declarados en `robots.txt` y una ficha de producto ordinaria por retailer. No se usaron endpoints privados ni credenciales, no se resolvieron CAPTCHAs y no se intentó esquivar ningún muro antibots. Cuando el servidor devolvía 403 o un challenge, se ha anotado tal cual.
 
 ## Leyenda de fiabilidad

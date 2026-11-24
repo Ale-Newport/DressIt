@@ -45,7 +45,7 @@ export function OutfitThumb({ outfit, onPress, onLongPress, selected, showScore 
       style={({ pressed }) => [styles.wrap, { opacity: pressed ? 0.85 : 1 }, style]}
     >
       <View style={[styles.canvasWrap, { borderColor: selected ? colors.accent : 'transparent' }]}>
-        <OutfitCanvas items={outfit.items} layout={outfit.layout} accessibilityLabel="" testID={`${testID ?? `outfit-thumb-${outfit.id}`}-canvas`} />
+        <OutfitCanvas items={outfit.items} accessibilityLabel="" testID={`${testID ?? `outfit-thumb-${outfit.id}`}-canvas`} />
         {outfit.isFavorite ? (
           <View style={styles.fav} pointerEvents="none">
             <Icon name="heart" size={14} color={colors.accent} />

@@ -17,7 +17,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
 ![Python](https://img.shields.io/badge/vision-PyTorch-EE4C2C?logo=pytorch&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-215-brightgreen)
+![Tests](https://img.shields.io/badge/tests-275-brightgreen)
 
 [What it is](#what-it-is) ·
 [The honest part](#the-honest-part) ·
@@ -54,6 +54,7 @@ The app, its copy and its recommendations are in **Spanish**; the first market i
 | 🗓️ **Plan** | Week and month planner with conflict detection, "suggest my week", trip capsules with a packing list |
 | 🛍️ **Shop with judgement** | Wardrobe gaps ("with a black bag you could make 6 new outfits"), try a product against your wardrobe before buying, never pushes near-duplicates |
 | 💬 **Ask** | "¿Qué me pongo mañana para ir a trabajar?", "viaje de cuatro días a Madrid" — answered by calling the same functions as the app, with no paid AI required |
+| 🧠 **Apple Intelligence** | On compatible iPhones, Apple's on-device model helps the assistant understand you, summarises your wardrobe and describes a garment from its photo — all on the phone, and never deciding anything on its own |
 | 🔒 **Private** | Location rounded to ~1 km, photos stripped of EXIF/GPS and processed on our own servers, GDPR export and deletion |
 
 <p align="center">
@@ -78,7 +79,7 @@ catalogue, and to light up when one is connected:
 | Paste a product link, read on the server | ✅ Springfield, Cortefiel, Pedro del Hierro, Nike — measured on 2026-11-24 |
 | Paste a link for the other 15 stores (Zara and Inditex, El Corte Inglés, Mango, H&M, Zalando, Decathlon, adidas…) | ⛔ they block automated reads (403/429); DressIt does **not** work around that |
 | Open the page in the in-app browser or share it from Safari | ✅ the app reads the product data from the page *you* are viewing |
-| Licensed catalogue for search, Discover and visual search | ⏳ pipeline ready; waiting for affiliate approval (Awin: Decathlon ES, adidas ES; Rakuten: Mango) |
+| Licensed catalogues for search, Discover and visual search | ⏳ connectors ready for Awin, Rakuten, Tradedoubler and CJ; waiting for each store to approve DressIt (step-by-step: [`docs/conectar-tiendas.md`](docs/conectar-tiendas.md)) |
 
 Every store field carries where it came from and when it was verified; prices
 older than 24 h are shown as unverified; inferred values (type, colour) are
@@ -188,11 +189,11 @@ cd services/vision && VISION_BACKEND=stub uv run pytest -q
 
 | Suite | Tests | Covers |
 |---|---|---|
-| `apps/mobile` | 60 | API client (token refresh, errors), components, accessibility, screens against recorded API responses, regressions found in the simulator |
-| `services/api` | 67 | 33 integration tests against a real PostgreSQL with RLS: only available garments in outfits, weather changes recommendations, feedback changes the ranking, no near-duplicate purchases, stale prices flagged, users never mixed, providers going down |
+| `apps/mobile` | 65 | API client (token refresh, errors), components, accessibility, screens against recorded API responses, regressions found in the simulator |
+| `services/api` | 103 | Catalogue connectors against synthetic feeds and mocked APIs, the on-device assistant reading grounded in the text, and integration tests against a real PostgreSQL with RLS: only available garments in outfits, weather changes recommendations, feedback changes the ranking, no near-duplicate purchases, stale prices flagged, users never mixed, providers going down |
 | `packages/stylist-engine` | 24 | Determinism, complete outfits, whole-day weather, formality, learning, purchase utility, 1,500-garment wardrobe |
-| `packages/shared` | 14 | CIEDE2000 against published reference values, colour families, vocabulary integrity |
-| `services/vision` | 50 | Colour extraction, perceptual hashing, HTTP contract, abstention thresholds |
+| `packages/shared` | 20 | CIEDE2000 against published reference values, colour families, vocabulary integrity |
+| `services/vision` | 63 | Colour extraction, perceptual hashing, HTTP contract, abstention thresholds |
 
 Evidence from real services, with dates and raw numbers, in
 [`docs/evidence/`](docs/evidence/): store link import against 19 Spanish store

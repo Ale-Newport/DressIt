@@ -75,7 +75,7 @@ español apto para mostrar.
 | GET / POST | `/v1/trips` | – / `TripRequest` | `TripDto[]` / `TripDto` |
 | GET / DELETE | `/v1/trips/:id` | – | `TripDto` / `204` |
 | PATCH | `/v1/trips/:id/packing/:garmentId` | `{ packed: boolean }` | `TripDto` |
-| GET | `/v1/retailers` | – | `RetailerIntegrationDto[]` |
+| GET | `/v1/retailers` | – | `RetailerIntegrationDto[]` (incluye `catalogSources[]`: estado de cada feed/API oficial, ver [comercios.md](comercios.md)) |
 | GET | `/v1/catalog/search` | `CatalogSearchQuery` | `Paginated<ProductSummaryDto>` |
 | GET | `/v1/catalog/products/:id` | – | `ProductSummaryDto` |
 | GET | `/v1/shopping/sections` | `?sections=para_ti,completa_armario` | `ShoppingSectionDto[]` |

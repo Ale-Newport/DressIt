@@ -1,0 +1,42 @@
+{
+  "_fixture": "SINTÉTICO — forma de https://dev.tradedoubler.com/products/publisher/ (2026-11-24)",
+  "productHeader": { "totalHits": 3 },
+  "products": [
+    {
+      "name": "Vestido midi estampado (fixture)",
+      "productImage": { "url": "https://cdn.example.test/td-1.jpg" },
+      "language": "es",
+      "description": "FIXTURE DE TEST — producto ficticio",
+      "brand": "Marca Fixture",
+      "identifiers": { "sku": "TD-1", "ean": "8412345678905" },
+      "size": "S,M,L",
+      "fields": [ { "name": "colour", "value": "Azul" } ],
+      "offers": [ {
+        "feedId": 777,
+        "productUrl": "https://pdt.tradedoubler.com/click?a(0)p(0)product(td1)ttid(3)url(https%3A%2F%2Fshop.example.test%2Fp%2Ftd-1)",
+        "priceHistory": [ { "price": { "value": "59.95", "currency": "EUR" }, "date": "2026-11-01T10:00:00+0100" }, { "price": { "value": "49.95", "currency": "EUR" }, "date": "2026-11-23T10:00:00+0100" } ],
+        "modified": "2026-11-23T10:00:00+0100",
+        "availability": "In Stock",
+        "sourceProductId": "TD-1",
+        "programName": "Programa ficticio ES (fixture)",
+        "id": "td-guid-1",
+        "sourceProductUrl": "https://shop.example.test/p/td-1"
+      } ],
+      "categories": [ { "name": "Mujer > Vestidos" } ]
+    },
+    {
+      "name": "Bolso de piel marrón (fixture)",
+      "productImage": { "url": "https://cdn.example.test/td-2.jpg" },
+      "description": "FIXTURE DE TEST",
+      "offers": [ {
+        "feedId": 777,
+        "productUrl": "https://pdt.tradedoubler.com/click?a(0)p(0)product(td2)ttid(3)url(https%3A%2F%2Fshop.example.test%2Fp%2Ftd-2)",
+        "price": { "value": "89.00", "currency": "EUR" },
+        "inStock": 0,
+        "sourceProductId": "TD-2",
+        "id": "td-guid-2"
+      } ],
+      "categories": [ { "name": "Accesorios" } ]
+    }
+  ]
+}

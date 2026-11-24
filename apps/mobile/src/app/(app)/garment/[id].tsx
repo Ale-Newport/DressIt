@@ -1,5 +1,4 @@
 import type { GarmentDetailDto, GarmentStatus, GarmentWriteDto } from '@dressit/shared';
-import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -39,7 +38,9 @@ import {
   garmentToDraft,
   patchFor,
 } from '@/components/wardrobe/garmentDraft';
+import { CutoutImage } from '@/components/ui/CutoutImage';
 import { type FieldKey, GarmentFieldEditor } from '@/components/wardrobe/GarmentFields';
+import { OnDeviceDescription } from '@/components/wardrobe/OnDeviceDescription';
 import { today } from '@/lib/dates';
 import { capitalize, formatLongDate, formatMoney, formatShortDate } from '@/lib/format';
 import { options, statusLabel, subcategoryLabel } from '@/lib/vocab';
@@ -176,6 +177,8 @@ function GarmentDetail({ garment: g, refreshing, onRefresh }: { garment: Garment
           </Text>
         ) : null}
       </Card>
+
+      <OnDeviceDescription garment={g} />
 
       {/* Attributes with provenance + inline correction */}
       <View>
@@ -371,14 +374,7 @@ function Gallery({ garment: g }: { garment: GarmentDetailDto }) {
             accessibilityRole="image"
             accessibilityLabel={`${g.name}. ${t('detail.imageOf', { index: i + 1, total: images.length })}${img.attribution ? `. ${img.attribution}` : ''}`}
           >
-            <Image
-              source={{ uri: img.url, cacheKey: `img-${img.id}-${img.isCutout ? 'cutout' : 'full'}` }}
-              style={StyleSheet.absoluteFill}
-              contentFit={img.isCutout ? 'contain' : 'cover'}
-              cachePolicy="memory-disk"
-              transition={160}
-              accessible={false}
-            />
+            <CutoutImage image={img} variant="full" inset={0.08} />
             {img.attribution ? (
               <View style={[styles.attribution, { backgroundColor: colors.scrim }]}>
                 <Text variant="caption" color="#fff">

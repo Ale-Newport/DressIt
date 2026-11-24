@@ -1,10 +1,10 @@
 import type { DetectionDto, GarmentWriteDto, PredictedField } from '@dressit/shared';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Badge, Button, Card, Chip, ConfidenceBadge, GarmentSilhouette, Icon, Text } from '@/components/ui';
+import { CutoutImage } from '@/components/ui/CutoutImage';
 import { categoryLabel, colorHex, fitLabel, materialLabel, patternLabel, seasonLabel, styleLabel, subcategoryLabel } from '@/lib/vocab';
 import { radius, space, useTheme } from '@/theme';
 
@@ -86,13 +86,7 @@ export function DetectionCard({ detection: d, index, overrides, onOverride, onAc
       <View style={styles.top}>
         <View style={[styles.media, { backgroundColor: colors.surfaceAlt }]}>
           {d.cutout ? (
-            <Image
-              source={{ uri: d.cutout.url, cacheKey: `img-${d.cutout.id}-cutout` }}
-              style={StyleSheet.absoluteFill}
-              contentFit="contain"
-              cachePolicy="memory-disk"
-              accessible={false}
-            />
+            <CutoutImage image={{ ...d.cutout, thumbUrl: d.cutout.url, isCutout: true }} variant="full" inset={0.08} />
           ) : (
             <GarmentSilhouette category={draft.category} subcategory={draft.subcategory} color={draft.colors?.[0]?.hex ?? colorHex(families[0])} />
           )}

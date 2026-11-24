@@ -110,6 +110,18 @@ class ZeroShotHeads:
         self.warmth = _build_head(backend, "warmth", _texts(P.WARMTH_PROMPTS, P.WARMTH_TEMPLATES), sc("warmth"))
         self.fit = _build_head(backend, "fit", _texts({f: P.FIT_PROMPTS[f] for f in self.vocab.fits}, P.FIT_TEMPLATES), sc("fit"))
         self.scene = _build_head(backend, "scene", _texts(P.SCENE_PROMPTS, P.SCENE_TEMPLATES), sc("scene"))
+        # Support verification (single mode): the garment classes (subcategories + reject
+        # classes) compete with garment parts and display supports in one softmax.
+        extra = _texts({**P.GARMENT_PART_PROMPTS, **P.SUPPORT_PROMPTS}, P.SUPPORT_TEMPLATES)
+        extra_head = _build_head(backend, "support_extra", extra, sc("garment"))
+        self.support = Head(
+            name="support",
+            ids=self.garment.ids + extra_head.ids,
+            prototypes=np.vstack([self.garment.prototypes, extra_head.prototypes]),
+            scale=sc("garment"),
+        )
+        self.support_idx = np.array([i for i, c in enumerate(self.support.ids) if c.startswith("__support__")], dtype=int)
+        self.form_idx = np.array([self.support.ids.index(c) for c in ("__support__mannequin", "__support__form")], dtype=int)
         self.style_prior = np.array(
             [[s.styles.get(st, 0.0) for st in self.vocab.styles] for s in self.vocab.subcategories], dtype=np.float64
         )
@@ -126,6 +138,24 @@ def get_heads(backend: Any, settings: Settings) -> ZeroShotHeads:
             if key not in _heads_cache:
                 _heads_cache[key] = ZeroShotHeads(backend, settings)
     return _heads_cache[key]
+
+
+HEADWEAR = frozenset({"gorro", "gorra", "sombrero"})
+
+
+def headwear_probability(heads: ZeroShotHeads, embedding: np.ndarray) -> float:
+    """P(the photo shows a hat/cap/beanie) from the whole-photo embedding (hat on a head form)."""
+    p = heads.garment.probs(embedding[None])[0]
+    return float(sum(p[i] for i, c in enumerate(heads.garment.ids) if c in HEADWEAR))
+
+
+def support_probability(heads: ZeroShotHeads, embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per region embedding: P(display support: hanger, mannequin/form, clothesline, peg/hook)
+    and whether the single most likely class is a mannequin or head form."""
+    if len(embeddings) == 0:
+        return np.zeros(0, np.float32), np.zeros(0, bool)
+    p = heads.support.probs(embeddings)
+    return p[:, heads.support_idx].sum(axis=1).astype(np.float32), np.isin(p.argmax(axis=1), heads.form_idx)
 
 
 # ---------------------------------------------------------------------------

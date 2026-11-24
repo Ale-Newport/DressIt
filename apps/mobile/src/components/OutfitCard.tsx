@@ -61,7 +61,7 @@ export const OutfitCard = forwardRef<HostInstance, OutfitCardProps>(function Out
   return (
     <Card padded={false} testID={testID} style={styles.card}>
       <View>
-        <OutfitCanvas ref={canvasRef} items={outfit.items} layout={outfit.layout} style={styles.canvas} testID={`${testID}-canvas`} />
+        <OutfitCanvas ref={canvasRef} items={outfit.items} style={styles.canvas} testID={`${testID}-canvas`} />
         <View style={styles.badgeRow} pointerEvents="none">
           {outfit.isExploration ? <Badge label={t('badges.exploration')} tone="accent" icon="compass" testID={`${testID}-exploration`} /> : null}
           {outfit.isFavorite ? <Badge label="Favorito" tone="inverse" icon="heart" /> : outfit.isSaved ? <Badge label="Guardado" tone="inverse" icon="bookmark" /> : null}

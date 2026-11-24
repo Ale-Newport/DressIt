@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
 import { z } from 'zod';
-import { CATEGORIES, CONDITIONS, FITS, GARMENT_STATUSES, SEASONS, SPACE_KINDS, STYLES, getOccasion, type HomeResponse, type RetailerIntegrationDto, type ShoppingSection } from '@dressit/shared';
+import { CATEGORIES, CONDITIONS, FITS, GARMENT_STATUSES, SEASONS, SPACE_KINDS, STYLES, getOccasion, type CatalogSourceStatus, type CatalogSourceStatusDto, type HomeResponse, type RetailerIntegrationDto, type ShoppingSection } from '@dressit/shared';
 import type { AppContext } from './context.ts';
 import { withUser, type Tx } from './db/index.ts';
 import { badRequest, notFound, unauthorized } from './lib/errors.ts';
@@ -644,6 +644,17 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
   // --- Retail, catalog, shopping ---------------------------------------------------
   app.get('/v1/retailers', authed, async (): Promise<RetailerIntegrationDto[]> => {
     const rows = await ctx.db.selectFrom('retailer_integrations').selectAll().execute();
+    // Latest ingestion run per integration: `error` / `operational` come from real runs, never from config alone.
+    const runs = await ctx.db
+      .selectFrom('catalog_sync_runs')
+      .select(['integration_id', 'status', 'error', 'started_at', 'finished_at'])
+      .distinctOn('integration_id')
+      .where('integration_id', 'is not', null)
+      .orderBy('integration_id')
+      .orderBy('started_at', 'desc')
+      .execute();
+    const lastRun = new Map(runs.map((r) => [r.integration_id!, r]));
+    const SOURCE_LABEL: Record<CatalogSourceStatus, string> = { pending_credentials: 'pendiente de credenciales', configured: 'configurado, pendiente de la primera ingesta', operational: 'operativo', error: 'error en la última ingesta', unsupported: 'sin adaptador' };
     return RETAILERS.map((r) => {
       const ints = rows.filter((i) => i.retailer_id === r.id);
       const caps = Object.assign({}, ...ints.filter((i) => i.status === 'operational' || i.kind === 'page_capture' || i.kind === 'link_import').map((i) => i.capabilities as object)) as Record<string, boolean>;
@@ -654,6 +665,19 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
       const hasUserImport = ints.some((i) => i.kind === 'link_import' || i.kind === 'page_capture');
       const status = catalogOk ? 'operational' : linkOk ? 'partial' : hasUserImport ? 'link_only' : 'pending_authorization';
       const linkRow = ints.find((i) => i.kind === 'link_import');
+      const catalogSources: CatalogSourceStatusDto[] = ints
+        .filter((i) => ['affiliate_feed', 'official_api', 'data_provider'].includes(i.kind))
+        .map((i) => {
+          const def = r.integrations.find((d) => d.kind === i.kind && d.provider === i.provider);
+          const run = lastRun.get(i.id);
+          const lastSyncAt = (run?.finished_at ?? run?.started_at)?.toISOString() ?? null;
+          const base = { provider: i.provider, credentialsEnv: i.credentials_env, lastSyncAt };
+          if (run?.status === 'failed') return { ...base, status: 'error' as const, detail: `Error en la última ingesta: ${run.error ?? 'desconocido'}` };
+          if (i.status === 'operational') return { ...base, status: 'operational' as const, detail: i.last_check_result ?? 'Ingesta correcta' };
+          const cfgStatus = ctx.catalog.statusFor(i.provider, r.id, def?.programId ?? null);
+          return { ...base, status: cfgStatus.status as CatalogSourceStatus, detail: cfgStatus.detail };
+        });
+      const sourceNotes = catalogSources.map((c) => `Catálogo ${c.provider}: ${SOURCE_LABEL[c.status]}.`);
       return {
         retailer: { id: r.id, name: r.name, group: r.group },
         domains: r.domains,
@@ -661,10 +685,11 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
         capabilities: { linkImport: !!caps.linkImport, pageCapture: !!caps.pageCapture, catalogSearch: catalogOk, prices: !!caps.prices, availability: !!caps.availability, images: catalogOk && !!caps.images, affiliateLinks: catalogOk && !!caps.affiliateLinks, visualSearch: catalogOk },
         imagePolicy: (catalogOk ? 'licensed' : (linkRow?.image_policy ?? 'none')) as RetailerIntegrationDto['imagePolicy'],
         provider: ints.map((i) => i.provider).join(', '),
-        notes: ints.map((i) => i.notes).filter(Boolean).join(' '),
+        notes: [...ints.map((i) => i.notes), ...sourceNotes].filter(Boolean).join(' '),
         requires: pending.map((p) => p.requires).filter(Boolean).join(' ') || null,
         lastCheckedAt: linkRow?.last_checked_at?.toISOString() ?? null,
         lastCheckResult: linkRow?.last_check_result ?? null,
+        catalogSources,
       };
     });
   });
@@ -724,6 +749,23 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
   }));
 
   // --- Assistant -------------------------------------------------------------------
-  app.post('/v1/assistant/messages', { ...authed, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, user((trx, req) => assistant.converse(ctx, trx, req.userId, parse(z.object({ conversationId: uuid.optional(), text: z.string().trim().min(1).max(1000) }), req.body))));
+  const deviceIntent = z.object({
+    kind: z.enum(['outfit', 'trip', 'shopping', 'gaps', 'weather', 'count', 'other']),
+    when: z.enum(['hoy', 'manana', 'pasado_manana', 'dia_semana', 'fecha', 'sin_fecha']),
+    weekday: z.enum(['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']).nullish(),
+    dayOfMonth: z.number().int().min(0).max(31).nullish(),
+    occasion: z.string().max(40).nullish(),
+    formality: z.number().min(-1).max(1).optional(),
+    warmth: z.number().min(-1).max(1).optional(),
+    destination: z.string().max(80).nullish(),
+    days: z.number().int().min(0).max(60).nullish(),
+    subcategory: z.string().max(40).nullish(),
+    color: z.string().max(40).nullish(),
+    maxPrice: z.number().min(0).max(100_000).nullish(),
+    garmentPhrase: z.string().max(120).nullish(),
+    exclude: z.array(z.string().max(40)).max(10).optional(),
+    model: z.string().max(80).optional(),
+  });
+  app.post('/v1/assistant/messages', { ...authed, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, user((trx, req) => assistant.converse(ctx, trx, req.userId, parse(z.object({ conversationId: uuid.optional(), text: z.string().trim().min(1).max(1000), deviceIntent: deviceIntent.optional() }), req.body))));
 
 }

@@ -42,3 +42,16 @@ escribe «°c».
 - Colores: el vaquero se clasificó como «gris» y el gorro marino con franja blanca como «blanco».
 - No se ejecutaron en tiempo real: la extensión de compartir, el arrastrar y soltar del planificador,
   la exportación de imágenes, Android y un iPhone físico.
+
+## Segunda pasada (misma fecha): fotos, flat lay y Apple Intelligence
+
+| Cambio | Resultado en el simulador | Captura |
+|---|---|---|
+| Recortes del servidor sin soportes (`pnpm --filter @dressit/api cutouts:refresh`, 31 prendas regeneradas) | Sin piernas bajo el plumífero, sin cabeza de maniquí en el gorro, sin percha en la bufanda, sin cuerda en el vaquero. Queda la pinza verde del vaquero | [10](ios/10-conjunto-recortes-limpios.jpg) |
+| Flat lay a escala real con el compositor compartido | El abrigo va sobre el pantalón; las capas interiores, los complementos y el calzado van en la columna lateral, sin solapes | [10](ios/10-conjunto-recortes-limpios.jpg) |
+| Armario como foto de producto | Prenda entera, con margen y sombra que sigue el contorno | [11](ios/11-armario-foto-producto.jpg) |
+| Módulo nativo `dressit-intelligence` | Compila y se enlaza. *Perfil → Privacidad* informa de que Apple Intelligence está disponible | — |
+| Generación de texto con Foundation Models dentro de la app | **Falla en este simulador**: el runtime de iOS 26.3 no es compatible con el modelo de macOS 27.2 del Mac (`promptTemplateNotFound` en el filtro de seguridad). La app lo trata como «no disponible» y oculta el resumen. Hace falta un simulador de iOS 27.2 o un iPhone | — |
+
+Observación: después de regenerar los recortes, el armario siguió mostrando las imágenes antiguas
+hasta reiniciar la app (caché persistente de consultas).

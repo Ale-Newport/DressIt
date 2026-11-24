@@ -30,6 +30,8 @@ export interface RawGarment {
   createdAt?: string;
   embedding?: ArrayLike<number> | null;
   isCandidate?: boolean;
+  /** Width ÷ height of the garment image (flat lay). */
+  imageAspect?: number | null;
 }
 
 const WEARABLE_ALONE = new Set(['jersey', 'jersey_grueso', 'sudadera']);
@@ -86,5 +88,6 @@ export function toEngineGarment(raw: RawGarment): EngineGarment {
     createdAt: raw.createdAt ?? new Date(0).toISOString(),
     embedding: raw.embedding ?? null,
     ...(raw.isCandidate ? { isCandidate: true } : {}),
+    ...(raw.imageAspect ? { imageAspect: raw.imageAspect } : {}),
   };
 }

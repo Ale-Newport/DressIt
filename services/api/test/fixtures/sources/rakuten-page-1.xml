@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SINTÉTICO: forma de https://developers.rakutenadvertising.com/guides/product_search (2026-11-24). Datos inventados. -->
+<result>
+  <TotalMatches>3</TotalMatches>
+  <TotalPages>2</TotalPages>
+  <PageNumber>1</PageNumber>
+  <item>
+    <mid>99001</mid>
+    <merchantname>Anunciante ficticio (FIXTURE)</merchantname>
+    <linkid>RK-L1</linkid>
+    <createdon>2026-11-20/05:30:32</createdon>
+    <sku>RK-1</sku>
+    <productname>Abrigo de lana camel (fixture)</productname>
+    <category>
+      <primary>Mujer</primary>
+      <secondary>Abrigos~~Abrigo largo</secondary>
+    </category>
+    <price currency="EUR">149.99</price>
+    <saleprice currency="EUR">119.99</saleprice>
+    <upccode>4006381333931</upccode>
+    <description>
+      <short>FIXTURE DE TEST</short>
+      <long>FIXTURE DE TEST — producto ficticio, no real</long>
+    </description>
+    <keywords></keywords>
+    <linkurl>https://click.linksynergy.example.test/link?id=fixture&amp;offerid=1&amp;murl=https%3A%2F%2Fshop.example.test%2Fp%2Frk-1</linkurl>
+    <imageurl>https://cdn.example.test/rk-1.jpg</imageurl>
+  </item>
+  <item>
+    <mid>99001</mid>
+    <merchantname>Anunciante ficticio (FIXTURE)</merchantname>
+    <linkid>RK-L2</linkid>
+    <sku>RK-2</sku>
+    <productname>Pantalón recto negro (fixture)</productname>
+    <category><primary>Mujer</primary><secondary>Pantalones</secondary></category>
+    <price currency="EUR">39.99</price>
+    <saleprice currency="EUR">39.99</saleprice>
+    <description><short>FIXTURE DE TEST</short><long></long></description>
+    <linkurl>https://click.linksynergy.example.test/link?id=fixture&amp;offerid=2</linkurl>
+    <imageurl>https://cdn.example.test/rk-2.jpg</imageurl>
+  </item>
+</result>

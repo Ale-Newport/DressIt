@@ -1,18 +1,23 @@
 """``/v1/analyze`` orchestration.
 
 decode (EXIF) → gentle auto-crop → scene type (single / multiple / worn) → regions:
-  * single garment photo → salient-object background removal (rembg)
+  * single garment photo → salient-object background removal (rembg), in parallel
+    with region proposals (Grounding DINO + SAM 2.1); display supports (hanger,
+    mannequin/head form, clothesline, pegs) verified by FashionSigLIP are removed,
+    and thin structures crossing the frame border too (refine.py)
   * multi mode, or a worn/flat-lay photo in single mode → Grounding DINO boxes →
     SAM 2.1 box-prompted masks
 → cutouts (+ mild WB/exposure normalisation) → FashionSigLIP embeddings (one
-batch) → zero-shot heads with abstention → item selection (single: the main
-garment; multi: drop non-garments / duplicates) → colours + quality for the
-kept items only.
+batch) → zero-shot heads with abstention → layering (a recognised garment inside
+another one is subtracted from it; multi and single) → item selection (single:
+the main garment; multi: drop non-garments / duplicates) → edge colour
+decontamination of the returned cutouts → colours + quality for the kept items.
 """
 
 from __future__ import annotations
 
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Iterator
@@ -27,15 +32,18 @@ from ..hashing import phash, sha256_hex
 from ..imaging import content_box, decode_image, encode_png_base64, normalize_cutout_colors, pad_to_square, resize_max_side
 from ..models.base import Detection, VisionBackend
 from ..prompts import DETECTION_QUERIES
-from .classify import classify_embeddings, get_heads
+from .classify import classify_embeddings, get_heads, headwear_probability
 from .detect import filter_detections, group_of
-from .masks import clean_mask, crop_with_fill, embedding_view, make_cutout, mask_bbox, mask_iou, padded_box, touches_border
+from .masks import clean_mask, crop_with_fill, decontaminate_cutout, embedding_view, make_cutout, mask_bbox, mask_iou, padded_box, touches_border
+from .refine import Proposal, propose_regions, remove_border_lines, remove_supports
 
 SCENE_MIN_CONFIDENCE = 0.5
 MIN_MASK_FRAC = 0.002  # of the analysed region
 MULTI_MIN_DET_SCORE_UNCLASSIFIED = 0.35  # multi: keep a box without category only if the detector is this sure
 MULTI_MIN_DET_SCORE_VAGUE_ACCESSORY = 0.3  # multi: "accessory" without subcategory needs a surer box
 CONTAINED_DUPLICATE = 0.7
+# Region proposals run on the detector while rembg runs on onnxruntime (different devices).
+_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vision-stage")
 
 
 class Timer:
@@ -75,11 +83,12 @@ class Candidate:
     modified: bool = False  # mask reduced by layering
 
 
-def _scene(backend: VisionBackend, settings: Settings, region: Image.Image) -> tuple[str, float]:
+def _scene(backend: VisionBackend, settings: Settings, region: Image.Image) -> tuple[str, float, np.ndarray]:
     heads = get_heads(backend, settings)
-    p = heads.scene.probs(backend.embed_images([pad_to_square(region)]))[0]
+    emb = backend.embed_images([pad_to_square(region)])
+    p = heads.scene.probs(emb)[0]
     i = int(np.argmax(p))
-    return heads.scene.ids[i], float(p[i])
+    return heads.scene.ids[i], float(p[i]), emb[0]
 
 
 def _from_foreground(backend: VisionBackend, region: Image.Image, alpha: np.ndarray | None) -> Candidate | None:
@@ -88,6 +97,18 @@ def _from_foreground(backend: VisionBackend, region: Image.Image, alpha: np.ndar
     if mask.sum() < MIN_MASK_FRAC * mask.size:
         return None
     return Candidate(prob=prob, mask=mask)
+
+
+def _refine_foreground(
+    c: Candidate, backend: VisionBackend, settings: Settings, region: Image.Image, props: list[Proposal], headwear: bool
+) -> None:
+    """Remove display supports (hanger, mannequin, clothesline, pegs) from a rembg mask."""
+    prob, _ = remove_supports(backend, settings, region, remove_border_lines(settings, c.prob), props, headwear=headwear)
+    if prob is c.prob:
+        return
+    mask = clean_mask(prob)
+    if mask.sum() >= MIN_MASK_FRAC * mask.size:
+        c.prob, c.mask = prob, mask
 
 
 def _from_detections(backend: VisionBackend, settings: Settings, region: Image.Image, max_items: int) -> list[Candidate]:
@@ -122,16 +143,25 @@ def _cat(c: Candidate) -> str | None:
     return cat["value"] if cat else None
 
 
-def _layer(cands: list[Candidate]) -> list[Candidate]:
+CLOTHING = frozenset({"top", "bottom", "one_piece", "outerwear"})
+
+
+def _layer(cands: list[Candidate], *, clothing_only: bool = False) -> list[Candidate]:
     """Layering after classification: a bigger mask that swallows a smaller garment of a
     *different predicted category* (open jacket over shorts, a whole-outfit box) loses
-    those pixels, so every garment keeps its own. Returns the modified candidates."""
+    those pixels, so every garment keeps its own. Returns the modified candidates.
+
+    ``clothing_only`` (single mode): only clothing is subtracted — the jeans under a
+    puffer jacket — not accessories, which in a single-garment photo are more often a part
+    of the garment itself (a skirt's waistband taken for a belt)."""
     order = sorted(cands, key=lambda c: -int(c.mask.sum()))
     changed: list[Candidate] = []
     for i, big in enumerate(order):
         for small in order[i + 1 :]:
             # Only a confidently recognised garment (with subcategory) is "on top" of another one.
             if small.attrs.get("subcategory") is None or _cat(big) == _cat(small):
+                continue
+            if clothing_only and _cat(small) not in CLOTHING:
                 continue
             inside = np.logical_and(big.mask, small.mask).sum() / max(1, int(small.mask.sum()))
             if inside >= 0.6:
@@ -245,9 +275,10 @@ def analyze_image(data: bytes, *, mode: str, max_items: int, backend: VisionBack
         rw, rh = region.size
 
     scene: dict[str, Any] | None = None
+    region_emb: np.ndarray | None = None
     if alpha is None:
         with timer.stage("scene"):
-            s_id, s_conf = _scene(backend, settings, region)
+            s_id, s_conf, region_emb = _scene(backend, settings, region)
             scene = {"value": s_id, "confidence": round(s_conf, 4)}
     worn = scene is not None and scene["value"] == "worn" and scene["confidence"] >= SCENE_MIN_CONFIDENCE
 
@@ -259,10 +290,18 @@ def analyze_image(data: bytes, *, mode: str, max_items: int, backend: VisionBack
         with timer.stage("detect_segment"):
             cands = _from_detections(backend, settings, region, max_items)
     if mode == "single" and not cands:
+        proposals: Future[list[Proposal]] | None = None
         with timer.stage("background_removal"):
+            if alpha is None and settings.remove_supports and not worn:  # supports: products, not worn photos
+                proposals = _POOL.submit(propose_regions, backend, settings, region)
             c = _from_foreground(backend, region, alpha)
+            props = proposals.result() if proposals is not None else []
         if c is None:  # nothing separable: analyse the whole frame, flagged
             c = Candidate(prob=np.ones((rh, rw), np.float32), mask=np.ones((rh, rw), bool), warnings=[Q.WARN_MASK])
+        elif proposals is not None:
+            with timer.stage("supports"):
+                headwear = region_emb is not None and headwear_probability(get_heads(backend, settings), region_emb) >= 0.5
+                _refine_foreground(c, backend, settings, region, props, headwear)
         cands = [c]
 
     with timer.stage("cutout"):
@@ -270,9 +309,9 @@ def analyze_image(data: bytes, *, mode: str, max_items: int, backend: VisionBack
 
     with timer.stage("embed_classify"):
         _embed_and_classify(cands, backend, settings, worn)
-    if mode == "multi" and len(cands) > 1:
+    if len(cands) > 1 and (mode == "multi" or settings.layer_single):
         with timer.stage("layering"):
-            changed = [c for c in _layer(cands) if c.mask.sum() >= MIN_MASK_FRAC * c.mask.size and _prepare(c, rgb, settings)]
+            changed = [c for c in _layer(cands, clothing_only=mode == "single") if c.mask.sum() >= MIN_MASK_FRAC * c.mask.size and _prepare(c, rgb, settings)]
             cands = [c for c in cands if not c.modified or c in changed]
             _embed_and_classify(changed, backend, settings, worn)
 
@@ -283,6 +322,11 @@ def analyze_image(data: bytes, *, mode: str, max_items: int, backend: VisionBack
         cands = _drop_contained_duplicates(cands)
         cands.sort(key=lambda c: -((c.det.score if c.det else 0.5) * np.sqrt(c.mask.mean())))
         cands = cands[:max_items]
+
+    if settings.decontaminate_edges:
+        with timer.stage("edges"):  # only the returned cutouts (the classifier saw them on white)
+            for c in cands:
+                c.cutout = decontaminate_cutout(c.cutout)
 
     items: list[dict[str, Any]] = []
     with timer.stage("colors_quality"):

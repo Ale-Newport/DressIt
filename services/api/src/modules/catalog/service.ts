@@ -5,7 +5,7 @@ import { toVectorLiteral } from '../../db/index.ts';
 import type { ImportedProducts } from '../../db/types.ts';
 import { notFound } from '../../lib/errors.ts';
 import { inferMaterials, inferSubcategory } from '../retail/categorize.ts';
-import type { FeedProduct } from './providers.ts';
+import type { FeedProduct, Provenance } from './sources/types.ts';
 import { RETAILERS } from '../retail/registry.ts';
 
 export interface CatalogRow {
@@ -173,7 +173,7 @@ export async function catalogSize(db: Database | Tx): Promise<number> {
 }
 
 /** Upsert feed products for a retailer. Returns ids of products that need (re)embedding. */
-export async function upsertFeedProducts(db: Database, retailerId: string, integrationId: string | null, network: string, products: FeedProduct[], isSponsored = false): Promise<{ upserted: number; needEmbedding: Array<{ id: string; imageUrl: string }> }> {
+export async function upsertFeedProducts(db: Database, retailerId: string, integrationId: string | null, network: string, products: FeedProduct[], isSponsored = false, provenance: Provenance = 'feed'): Promise<{ upserted: number; needEmbedding: Array<{ id: string; imageUrl: string }> }> {
   const now = new Date();
   const needEmbedding: Array<{ id: string; imageUrl: string }> = [];
   let upserted = 0;
@@ -203,6 +203,7 @@ export async function upsertFeedProducts(db: Database, retailerId: string, integ
       })
       .onConflict((oc) =>
         oc.columns(['retailer_id', 'external_id']).doUpdateSet((eb) => ({
+          integration_id: eb.ref('excluded.integration_id'),
           title: eb.ref('excluded.title'),
           brand: eb.ref('excluded.brand'),
           description: eb.ref('excluded.description'),
@@ -221,9 +222,9 @@ export async function upsertFeedProducts(db: Database, retailerId: string, integ
       .returning('id')
       .executeTakeFirstOrThrow();
     if (p.priceCents !== null) {
-      await db.insertInto('product_prices').values({ product_id: row.id, price_cents: p.priceCents, original_price_cents: p.originalPriceCents, currency: p.currency, source: 'feed', observed_at: now }).execute();
+      await db.insertInto('product_prices').values({ product_id: row.id, price_cents: p.priceCents, original_price_cents: p.originalPriceCents, currency: p.currency, source: provenance, observed_at: now }).execute();
     }
-    await db.insertInto('product_availability').values({ product_id: row.id, availability: p.inStock === true ? 'in_stock' : p.inStock === false ? 'out_of_stock' : 'unknown', source: 'feed', observed_at: now }).execute();
+    await db.insertInto('product_availability').values({ product_id: row.id, availability: p.inStock === true ? 'in_stock' : p.inStock === false ? 'out_of_stock' : 'unknown', source: provenance, observed_at: now }).execute();
     for (const [i, url] of p.imageUrls.entries()) {
       await db.insertInto('product_images').values({ product_id: row.id, url, position: i, license: 'licensed', attribution: p.brand ?? null }).onConflict((oc) => oc.columns(['product_id', 'url']).doNothing()).execute();
     }

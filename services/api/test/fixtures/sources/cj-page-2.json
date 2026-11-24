@@ -1,0 +1,20 @@
+{
+  "_fixture": "SINTÉTICO — forma de https://developers.cj.com/graphql/reference/Product%20Feed (2026-11-24)",
+  "data": {
+    "shoppingProducts": {
+      "totalCount": 3,
+      "count": 1,
+      "limit": 1000,
+      "resultList": [
+        {
+          "id": "CJ-2-M", "title": "Chaqueta acolchada verde (fixture)", "description": "FIXTURE DE TEST", "brand": "Marca Fixture",
+          "link": "https://shop.example.test/p/cj-2", "imageLink": "https://cdn.example.test/cj-2.jpg",
+          "price": { "amount": "120.00", "currency": "EUR" }, "salePrice": { "amount": "90.00", "currency": "EUR" }, "availability": "IN_STOCK",
+          "size": "M", "color": "Verde", "itemGroupId": "CJ-2",
+          "lastUpdated": "2026-11-23T08:00:00Z", "advertiserName": "Anunciante ficticio (FIXTURE)", "productType": ["Chaquetas"],
+          "linkCode": { "clickUrl": "https://www.anrdoezrs.example.test/click-0-2" }
+        }
+      ]
+    }
+  }
+}

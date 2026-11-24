@@ -163,6 +163,15 @@ export const elevation = {
     ios: { shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: -4 } },
     default: { elevation: 12 },
   }),
+  /**
+   * Soft contact shadow for background-free cutouts. On iOS a layer without background colour
+   * casts its shadow from the image's alpha, so it hugs the garment's outline. Android's
+   * elevation can't follow alpha, so cutouts stay flat there.
+   */
+  cutout: Platform.select({
+    ios: { shadowColor: '#2b2118', shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 5 } },
+    default: {},
+  }),
 };
 
 export const motion = {

@@ -224,6 +224,25 @@ En EAS Build la extensión añade un segundo target: hay que tener `eas.json` y 
 
 ---
 
+### 6.1 Apple Intelligence y Vision en el iPhone
+
+Módulo nativo local [`apps/mobile/modules/dressit-intelligence`](../apps/mobile/modules/dressit-intelligence)
+(Swift, API de módulos de Expo), envuelto en [`src/lib/intelligence.ts`](../apps/mobile/src/lib/intelligence.ts).
+Todo se ejecuta en el dispositivo. En Android, en iPhones sin Apple Intelligence o si el usuario lo
+desactiva en *Perfil → Privacidad y datos → IA en tu iPhone*, las funciones no aparecen y la app
+funciona como antes.
+
+| Función | Requisito | Dónde se usa |
+|---|---|---|
+| Entender peticiones del asistente (`extractIntent`, salida estructurada) | iOS 26 + Apple Intelligence | Se envía como `deviceIntent`. El servidor solo usa lo que sus reglas no encontraron y que aparece en el texto |
+| Resumen del armario (`summarize`) | iOS 26 + Apple Intelligence | Estadísticas, a partir de `wardrobeFacts()` y nada más |
+| Describir una prenda a partir de su foto (`describeGarment`) | iOS 27 + Apple Intelligence | Ficha de la prenda: sugiere un nombre y una frase que el usuario revisa y guarda |
+| Recorte instantáneo (`liftSubject`, Vision) | iOS 17 | Vista previa en la cola de subida; el recorte definitivo lo hace el servidor |
+
+Por qué así y no más: [evidence/apple-intelligence-2026-11-24.md](evidence/apple-intelligence-2026-11-24.md).
+El modelo de Apple clasifica peor que el servidor y se inventa datos, así que no decide nada por sí
+solo.
+
 ## 7. Pruebas
 
 ```bash

@@ -370,11 +370,16 @@ export async function getGarmentDetail(trx: Tx, signer: UrlSigner, id: string): 
 /** Load the wardrobe in engine form (available garments by default). */
 export async function loadEngineWardrobe(trx: Tx, opts: { statuses?: GarmentStatus[]; withEmbeddings?: boolean } = {}): Promise<EngineGarment[]> {
   const statuses = opts.statuses ?? ['available'];
-  let q = trx.selectFrom('garments as g').selectAll('g').where('g.status', 'in', statuses);
+  let q = trx
+    .selectFrom('garments as g')
+    .leftJoin('garment_images as pi', 'pi.id', 'g.primary_image_id')
+    .selectAll('g')
+    .select(['pi.width as img_width', 'pi.height as img_height'])
+    .where('g.status', 'in', statuses);
   if (opts.withEmbeddings) {
     q = q.leftJoin('garment_embeddings as e', 'e.garment_id', 'g.id').select(sql<string | null>`e.embedding::text`.as('embedding_text')) as unknown as typeof q;
   }
-  const rows = (await q.execute()) as Array<GarmentRow & { embedding_text?: string | null }>;
+  const rows = (await q.execute()) as Array<GarmentRow & { embedding_text?: string | null; img_width?: number | null; img_height?: number | null }>;
   return rows.map((r) =>
     toEngineGarment({
       id: r.id,
@@ -395,6 +400,7 @@ export async function loadEngineWardrobe(trx: Tx, opts: { statuses?: GarmentStat
       lastWornOn: r.last_worn_on,
       createdAt: r.created_at.toISOString(),
       embedding: parseVector(r.embedding_text ?? null),
+      imageAspect: r.img_width && r.img_height ? r.img_width / r.img_height : null,
     }),
   );
 }
