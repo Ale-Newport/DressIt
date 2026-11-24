@@ -1,9 +1,17 @@
 {
   "name": "dressit",
   "private": true,
-  "description": "DressIt — armario digital, estilista IA y personal shopper (mercado España)",
+  "description": "DressIt: digital wardrobe, AI stylist and personal shopper for Spain (iOS/Android, Fastify, PostgreSQL + pgvector, local vision models)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ale-Newport/DressIt.git"
+  },
+  "homepage": "https://github.com/Ale-Newport/DressIt#readme",
   "packageManager": "pnpm@10.34.5",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev:api": "pnpm --filter @dressit/api dev",
     "dev:worker": "pnpm --filter @dressit/api worker",

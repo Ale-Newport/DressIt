@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in DressIt does not work the way it should.
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. **Security problems go through a [private report](https://github.com/Ale-Newport/DressIt/security/advisories/new), not here.** Please do not paste personal photos or data.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add three garments from the gallery
+        2. Open Inicio and pick "Trabajo"
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Mobile app (iOS)
+        - Mobile app (Android)
+        - Outfit recommendations
+        - Photo digitising / vision
+        - Store link import
+        - API / database
+        - Docs or tooling
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or a commit SHA
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact e-mails, tokens and anything personal.

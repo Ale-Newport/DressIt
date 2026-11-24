@@ -1,0 +1,27 @@
+name: Store integration
+description: Ask for a retailer to be supported, or report that a store's import broke.
+title: "[Store]: "
+labels: ["area: retail", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        DressIt only uses legitimate routes: official APIs, approved affiliate feeds, and pages the user opens themselves. It never uses private endpoints or works around anti-bot protection. See [docs/comercios.md](https://github.com/Ale-Newport/DressIt/blob/main/docs/comercios.md).
+  - type: input
+    id: store
+    attributes:
+      label: Store
+      placeholder: e.g. Scalpers, Ecoalf
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: A public product URL (Spanish market)
+    validations:
+      required: true
+  - type: textarea
+    id: route
+    attributes:
+      label: Known legitimate route
+      description: Affiliate network, official API, product feed… or "unknown".
