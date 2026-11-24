@@ -1,0 +1,57 @@
+# Weekly, grouped, so updates arrive as a few reviewable pull requests rather
+# than a stream. Every one of them needs the code owner's approval to merge.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps"
+    groups:
+      dev-tooling:
+        dependency-type: development
+        update-types: ["minor", "patch"]
+      runtime-patches:
+        dependency-type: production
+        update-types: ["patch"]
+    ignore:
+      # Expo SDK packages move together and need a development build on a
+      # device; they are upgraded by hand with `npx expo install --fix`.
+      - dependency-name: "expo"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "expo-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-native"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: uv
+    directory: /services/vision
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "area: vision"]
+    commit-message:
+      prefix: "deps(vision)"
+    ignore:
+      # Model-stack upgrades change predictions; they are re-evaluated with
+      # services/vision/scripts/evaluate.py before landing.
+      - dependency-name: "torch"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "transformers"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]

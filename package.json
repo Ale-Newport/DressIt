@@ -1,0 +1,27 @@
+{
+  "name": "dressit",
+  "private": true,
+  "description": "DressIt: digital wardrobe, AI stylist and personal shopper for Spain (iOS/Android, Fastify, PostgreSQL + pgvector, local vision models)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ale-Newport/DressIt.git"
+  },
+  "homepage": "https://github.com/Ale-Newport/DressIt#readme",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter @dressit/api dev",
+    "dev:worker": "pnpm --filter @dressit/api worker",
+    "dev:mobile": "pnpm --filter @dressit/mobile start",
+    "db:setup": "bash scripts/db-setup.sh",
+    "db:migrate": "pnpm --filter @dressit/api db:migrate",
+    "db:codegen": "pnpm --filter @dressit/api db:codegen",
+    "db:seed:demo": "pnpm --filter @dressit/api db:seed:demo",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r --parallel lint"
+  }
+}

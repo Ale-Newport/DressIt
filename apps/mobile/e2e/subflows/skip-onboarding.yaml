@@ -1,0 +1,21 @@
+# Skips every onboarding step (all steps are optional) and lands on Inicio.
+appId: com.dressit.app
+---
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-screen"
+    timeout: 20000
+- repeat:
+    while:
+      notVisible:
+        id: "home-screen"
+    times: 10
+    commands:
+      - tapOn:
+          id: "onboarding-skip"
+          optional: true
+      - waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 20000

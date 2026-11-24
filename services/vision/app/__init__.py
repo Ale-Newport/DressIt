@@ -1,0 +1,1 @@
+"""DressIt vision microservice."""

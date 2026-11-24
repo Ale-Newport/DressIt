@@ -1,0 +1,89 @@
+# Servicios de backend para desarrollo local con Docker.
+#   docker compose up -d postgres redis minio      # solo dependencias
+#   docker compose --profile app up -d --build      # todo (API, worker, visión)
+# La app móvil se ejecuta fuera de Docker (Expo).
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: dressit
+      POSTGRES_PASSWORD: dressit
+      POSTGRES_DB: dressit
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/docker-db-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dressit"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: dressit
+      MINIO_ROOT_PASSWORD: dressit-minio-dev
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  vision:
+    profiles: ["app"]
+    build: ./services/vision
+    environment:
+      VISION_BACKEND: torch
+      VISION_DEVICE: cpu
+    ports: ["8001:8001"]
+    volumes: [visionmodels:/app/models_cache]
+
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://dressit_app:dressit_app_dev@postgres:5432/dressit
+      DATABASE_ADMIN_URL: postgres://dressit:dressit@postgres:5432/dressit
+      REDIS_URL: redis://redis:6379
+      VISION_SERVICE_URL: http://vision:8001
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: dressit
+      S3_SECRET_ACCESS_KEY: dressit-minio-dev
+      S3_BUCKET: dressit-images
+      S3_FORCE_PATH_STYLE: "true"
+      WORKER_MODE: separate
+    command: ["sh", "-c", "node services/api/src/db/migrate.ts && node services/api/src/server.ts"]
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://dressit_app:dressit_app_dev@postgres:5432/dressit
+      REDIS_URL: redis://redis:6379
+      VISION_SERVICE_URL: http://vision:8001
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: dressit
+      S3_SECRET_ACCESS_KEY: dressit-minio-dev
+      S3_BUCKET: dressit-images
+      S3_FORCE_PATH_STYLE: "true"
+    command: ["node", "services/api/src/worker.ts"]
+    depends_on: [api]
+
+volumes:
+  pgdata:
+  miniodata:
+  visionmodels:

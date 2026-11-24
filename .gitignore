@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.expo/
+*.tsbuildinfo
+.env
+.env.*.local
+!.env.example
+.DS_Store
+coverage/
+storage/
+*.log
+# Python
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/
+services/vision/models_cache/
+# Mobile native builds
+apps/mobile/ios/
+apps/mobile/android/
+apps/mobile/.expo/
+
+# Local demo credentials
+.demo-credentials*

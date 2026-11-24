@@ -1,0 +1,16 @@
+# Secret scanning (CI "security" job and `gitleaks git` locally): gitleaks' default rules plus a
+# narrow allowlist of reviewed false positives. Keep each entry exact; never allowlist whole files.
+title = "DressIt"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed false positives"
+regexTarget = "secret"
+regexes = [
+  # .env.example: the generic rule reads past the empty `EBAY_CLIENT_SECRET=` into the next line.
+  '''^EBAY_MARKETPLACE_ID=EBAY_ES$''',
+  # services/api/test/integration/api.test.ts: deliberately wrong password for the failed-login test.
+  '''^incorrecta-123$''',
+]
