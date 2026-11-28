@@ -93,7 +93,7 @@ describe('Google Cloud Vision Web Detection', () => {
   it('keeps page titles as plain text, with no angle bracket left by split or unclosed tags', () => {
     const titles = ['<scr<b>ipt>alert(1)</script> Jersey', 'Camisa <script', 'Falda &amp;lt;b&amp;gt; corta'];
     const out = parseCloudVisionWeb({ responses: [{ webDetection: { pagesWithMatchingImages: titles.map((pageTitle) => ({ url: 'https://shop.example/x', pageTitle })) } }] }, 'full');
-    expect(out.candidates.map((c) => c.title)).toEqual(['iptalert(1) Jersey', 'Camisa script', 'Falda &lt;b&gt; corta']);
+    expect(out.candidates.map((c) => c.title)).toEqual(['alert(1) Jersey', 'Camisa', 'Falda &lt;b&gt; corta']);
     for (const c of out.candidates) expect(c.title).not.toMatch(/[<>]/);
   });
 });

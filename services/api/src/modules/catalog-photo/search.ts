@@ -188,6 +188,23 @@ export class SerpApiLens implements SearchProvider {
 // Google Cloud Vision — Web Detection
 // ---------------------------------------------------------------------------
 
+/**
+ * A page title as plain text: every angle bracket and whatever lies between them dropped, nested or
+ * unclosed alike, so a tag split by another ("<scr<b>ipt>") or left open cannot leave "<script" behind (a
+ * one-pass tag regex could). "&amp;" is decoded afterwards by the caller: "&amp;lt;" stays the entity
+ * "&lt;", never a bracket.
+ */
+export function plainText(s: string): string {
+  let out = '';
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === '<') depth++;
+    else if (ch === '>') depth = Math.max(0, depth - 1);
+    else if (depth === 0) out += ch;
+  }
+  return out;
+}
+
 export function parseCloudVisionWeb(body: unknown, query: 'crop' | 'full'): SearchOutput {
   const resp = ((body ?? {}) as { responses?: Array<{ webDetection?: Record<string, unknown>; error?: { message?: string } }> }).responses?.[0];
   if (resp?.error) throw new SearchError(`Cloud Vision: ${resp.error.message ?? 'error'}`, false);
@@ -198,10 +215,7 @@ export function parseCloudVisionWeb(body: unknown, query: 'crop' | 'full'): Sear
     bestGuessLabels?: Array<{ label?: string }>;
   };
   const out: WebCandidate[] = [];
-  // A page title as plain text: its tags out, then any angle bracket left over, so a tag split by another
-  // ("<scr<b>ipt>") or left unclosed cannot leave "<script" behind. "&amp;" is decoded last: "&amp;lt;"
-  // stays the entity "&lt;", never a bracket.
-  const stripTags = (s: string | undefined) => (s ? s.replace(/<[^>]*>/g, '').replace(/[<>]/g, '').replace(/&amp;/g, '&').trim() : null);
+  const stripTags = (s: string | undefined) => (s ? plainText(s).replace(/&amp;/g, '&').trim() : null);
   for (const p of wd.pagesWithMatchingImages ?? []) {
     const full = p.fullMatchingImages?.[0]?.url;
     out.push({
