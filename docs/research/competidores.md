@@ -52,9 +52,37 @@ Las seis apps están disponibles en la App Store de España.
   3. Solo Megu tiene **reglas explícitas del usuario**.
   4. Ninguna app explica qué hace con el clima más allá de "basado en el tiempo". Una regla térmica transparente (clo + lluvia + viento + UV) puede ser un argumento de venta.
 
+## Cómo convierte Alta las prendas en fotos de estudio (investigación del 2026-11-25)
+
+Lo **confirmado** públicamente:
+
+- **Recorte con SAM de Meta.** Alta comparó modelos de segmentación en 8 categorías de prenda; ganó
+  SAM y hoy usa **SAM 3** para quitar el fondo de cada imagen subida (más de 20 millones). Su fundadora
+  explica que las API de recorte de terceros costaban «unos céntimos por imagen» y eso no escalaba
+  ([caso de Meta, 6/04/2026](https://ai.meta.com/blog/alta-daily-fashion-app-segment-anything/)).
+- **«Prettify» es generativo.** Crea «una imagen nueva» con aspecto de foto de tienda: quita arrugas,
+  desorden y mala luz. En un selfie con conjunto, el estilista de IA separa cada pieza (zapatos,
+  sombrero, chaqueta…) y hace Prettify de cada una. Al subir el armario hay un Prettify por lotes
+  ([blog de Alta, 28/05/2026](https://www.altadaily.com/blog/prettify)).
+- **Modelos propios.** Fortune habla de 12 modelos entrenados por Alta
+  ([22/10/2026](https://fortune.com/2026/10/22/alta-ai-fashion-app-series-a-20-million-forerunner-rent-the-runway/)); Menlo, de «más de una docena de modelos especializados» con estilistas en el bucle.
+- La ficha de App Store dice que primero intenta **encontrar la foto original del producto** y, si no,
+  quita el fondo con IA y rellena tejido y corte automáticamente.
+
+**No es público** qué modelo generativo usa (ni Gemini, ni gpt-image, ni FLUX, ni Photoroom aparecen
+asociados a Alta), ni sus tiempos. Lo que encaja con todo lo anterior, sin que Alta lo haya descrito:
+un modelo de visión y lenguaje detecta y **nombra** cada prenda («Red Hooded Sweatshirt»), un modelo
+de edición genera una foto de producto de cada una a partir de la foto original y se recorta después,
+en paralelo en servidores con GPU.
+
+**Qué ha copiado DressIt, sin coste**: el nombre de cada prenda lo pone un modelo de visión y lenguaje
+local (Gemma 4 E4B), la foto de estudio se genera desde la foto original (FLUX.2 klein en MLX) y se
+recorta después (BiRefNet). Detalle y medidas en
+[../foto-catalogo.md](../foto-catalogo.md#foto-de-estudio-primero-recorte-después-25112026).
+
 ## Fuentes
 
-Todas consultadas el **2026-11-24**.
+Todas consultadas el **2026-11-24**, salvo las de la sección sobre Alta (2026-11-25).
 
 - Acloset, ficha de App Store: https://apps.apple.com/us/app/acloset-ai-fashion-assistant/id1542311809 (datos vía https://itunes.apple.com/lookup?id=1542311809&country=us)
 - Acloset, web: https://acloset.app/

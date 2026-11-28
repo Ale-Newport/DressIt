@@ -8,6 +8,7 @@ import { errorMessage } from '@/api/client';
 import { isConsentGranted, useCompleteOnboarding, useConsents, useMe, usePreferences, useUpdatePreferences } from '@/api/hooks/me';
 import { uploadImage } from '@/api/upload';
 import { CityPicker } from '@/components/profile/CityPicker';
+import { AvatarSetup } from '@/components/profile/AvatarSetup';
 import { ConsentList } from '@/components/profile/ConsentList';
 import {
   BrandsBudgetSection,
@@ -23,8 +24,8 @@ import { Button, OfflineBanner, ProgressBar, Text, useToast } from '@/components
 import { pickFromLibrary } from '@/lib/media';
 import { radius, space, useTheme } from '@/theme';
 
-type StepKey = 'styles' | 'colors' | 'fit' | 'shopping' | 'routine' | 'city' | 'consents' | 'inspiration';
-const STEPS: StepKey[] = ['styles', 'colors', 'fit', 'shopping', 'routine', 'city', 'consents', 'inspiration'];
+type StepKey = 'styles' | 'colors' | 'fit' | 'shopping' | 'routine' | 'city' | 'consents' | 'avatar' | 'inspiration';
+const STEPS: StepKey[] = ['styles', 'colors', 'fit', 'shopping', 'routine', 'city', 'consents', 'avatar', 'inspiration'];
 /** Steps whose answers live in PreferencesDto (saved with PUT /v1/me/preferences). */
 const PREF_STEPS: StepKey[] = ['styles', 'colors', 'fit', 'shopping', 'routine'];
 
@@ -136,6 +137,7 @@ export default function OnboardingScreen() {
         {step === 'routine' ? <RoutineSection value={value} onChange={change} /> : null}
         {step === 'city' ? <CityPicker currentName={me.data?.location?.name ?? null} /> : null}
         {step === 'consents' ? <ConsentList kinds={['photo_processing', 'location', 'calendar']} /> : null}
+        {step === 'avatar' ? <AvatarSetup compact /> : null}
         {step === 'inspiration' ? (
           <View style={{ gap: space.md }}>
             {!photoConsent ? (

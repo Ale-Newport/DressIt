@@ -64,7 +64,12 @@ def merge_pairs(dets: list[Detection]) -> list[Detection]:
             ratio = area(a.box) / max(area(b.box), 1e-6)
             if not 0.4 <= ratio <= 2.5:
                 continue
-            size = max(a.box[2] - a.box[0], a.box[3] - a.box[1], b.box[2] - b.box[0], b.box[3] - b.box[1])
+            size = max(
+                a.box[2] - a.box[0],
+                a.box[3] - a.box[1],
+                b.box[2] - b.box[0],
+                b.box[3] - b.box[1],
+            )
             gap_x = max(0.0, max(a.box[0], b.box[0]) - min(a.box[2], b.box[2]))
             gap_y = max(0.0, max(a.box[1], b.box[1]) - min(a.box[3], b.box[3]))
             gap = max(gap_x, gap_y)
@@ -74,7 +79,13 @@ def merge_pairs(dets: list[Detection]) -> list[Detection]:
         if best_j is not None:
             used.update({i, best_j})
             b = paired[best_j]
-            merged.append(Detection(box=union_box(a.box, b.box), score=max(a.score, b.score), label=a.label))
+            merged.append(
+                Detection(
+                    box=union_box(a.box, b.box),
+                    score=max(a.score, b.score),
+                    label=a.label,
+                )
+            )
         else:
             used.add(i)
             merged.append(a)
@@ -87,8 +98,14 @@ def _union_coverage(outer: Box, inner: list[Box], grid: int = 64) -> float:
     w, h = max(x1 - x0, 1e-6), max(y1 - y0, 1e-6)
     covered = [[False] * grid for _ in range(grid)]
     for bx0, by0, bx1, by1 in inner:
-        gx0, gx1 = int(max(0.0, (bx0 - x0) / w) * grid), int(min(1.0, (bx1 - x0) / w) * grid)
-        gy0, gy1 = int(max(0.0, (by0 - y0) / h) * grid), int(min(1.0, (by1 - y0) / h) * grid)
+        gx0, gx1 = (
+            int(max(0.0, (bx0 - x0) / w) * grid),
+            int(min(1.0, (bx1 - x0) / w) * grid),
+        )
+        gy0, gy1 = (
+            int(max(0.0, (by0 - y0) / h) * grid),
+            int(min(1.0, (by1 - y0) / h) * grid),
+        )
         for gy in range(gy0, gy1):
             row = covered[gy]
             for gx in range(gx0, gx1):
@@ -102,30 +119,44 @@ def drop_group_boxes(dets: list[Detection]) -> list[Detection]:
     out: list[Detection] = []
     for big in dets:
         inner = [
-            d for d in dets
+            d
+            for d in dets
             if d is not big
             and containment(d.box, big.box) >= 0.8
-            and 0.1 * area(big.box) <= area(d.box) <= 0.7 * area(big.box)  # near-duplicates of big don't count
+            and 0.1 * area(big.box)
+            <= area(d.box)
+            <= 0.7 * area(big.box)  # near-duplicates of big don't count
         ]
         distinct: list[Detection] = []
         for d in sorted(inner, key=lambda d: -area(d.box)):
             if all(iou(d.box, k.box) < 0.5 for k in distinct):
                 distinct.append(d)
-        if len(distinct) >= 2 and _union_coverage(big.box, [d.box for d in distinct]) >= 0.5:
+        if (
+            len(distinct) >= 2
+            and _union_coverage(big.box, [d.box for d in distinct]) >= 0.5
+        ):
             continue
         out.append(big)
     return out
 
 
 def filter_detections(
-    dets: list[Detection], width: int, height: int, *, max_items: int, iou_threshold: float = 0.6, min_area_frac: float = 0.004
+    dets: list[Detection],
+    width: int,
+    height: int,
+    *,
+    max_items: int,
+    iou_threshold: float = 0.6,
+    min_area_frac: float = 0.004,
 ) -> list[Detection]:
     """Drop tiny boxes, near-full-frame boxes when others exist, and duplicates (class-agnostic NMS)."""
     img_area = float(width * height)
     min_side = 0.03 * max(width, height)
     dets = [
-        d for d in dets
-        if area(d.box) >= min_area_frac * img_area and min(d.box[2] - d.box[0], d.box[3] - d.box[1]) >= min_side
+        d
+        for d in dets
+        if area(d.box) >= min_area_frac * img_area
+        and min(d.box[2] - d.box[0], d.box[3] - d.box[1]) >= min_side
     ]
     if len(dets) > 1:
         dets = [d for d in dets if area(d.box) < 0.95 * img_area] or dets

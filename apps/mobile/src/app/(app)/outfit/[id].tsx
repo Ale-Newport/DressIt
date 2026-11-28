@@ -15,6 +15,7 @@ import { OutfitPickerSheet } from '@/components/outfits/OutfitPickerSheet';
 import { outfitTitle } from '@/components/outfits/OutfitThumb';
 import { RatingStars } from '@/components/outfits/RatingStars';
 import { RejectSheet } from '@/components/outfits/RejectSheet';
+import { AvatarRenderCard } from '@/components/outfits/AvatarRenderCard';
 import { ScoreBreakdown } from '@/components/outfits/ScoreBreakdown';
 import {
   Badge,
@@ -200,6 +201,8 @@ function OutfitDetail({ outfit, refreshing, onRefresh }: { outfit: OutfitDto; re
           )
         }
       />
+
+      <AvatarRenderCard outfit={outfit} />
 
       {outfit.explanation.length ? (
         <View style={{ gap: space.sm }}>

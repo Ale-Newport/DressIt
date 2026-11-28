@@ -7,3 +7,5 @@ export * from './me';
 export * from './outfits';
 export * from './planner';
 export * from './shopping';
+export * from './generation';
+export * from './catalog-photo';

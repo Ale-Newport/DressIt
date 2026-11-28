@@ -96,7 +96,7 @@ export const OutfitCanvas = forwardRef<HostInstance, OutfitCanvasProps>(function
             ]}
           >
             {image ? (
-              <CutoutImage image={image} variant={image.isCutout ? 'full' : 'thumb'} style={image.isCutout ? undefined : styles.photo} />
+              <CutoutImage image={image} variant={image.isCutout ? 'full' : 'thumb'} style={image.isCutout ? undefined : styles.photo} compactLabel />
             ) : (
               <GarmentSilhouette
                 testID={`${testID}-item-${b.slot}-silhouette`}

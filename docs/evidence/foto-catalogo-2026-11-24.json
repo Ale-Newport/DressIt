@@ -1,0 +1,1194 @@
+{
+  "date": "2026-11-24",
+  "api": "http://localhost:3000",
+  "minutes": 0,
+  "status": {
+    "auto": true,
+    "search": [
+      {
+        "id": "catalog",
+        "label": "Catálogos autorizados",
+        "configured": true,
+        "missing": []
+      },
+      {
+        "id": "serpapi_lens",
+        "label": "Google Lens (SerpApi)",
+        "configured": false,
+        "missing": [
+          "SERPAPI_API_KEY"
+        ]
+      },
+      {
+        "id": "cloud_vision",
+        "label": "Google Cloud Vision (Web Detection)",
+        "configured": false,
+        "missing": [
+          "GOOGLE_CLOUD_VISION_API_KEY"
+        ]
+      },
+      {
+        "id": "lykdat",
+        "label": "Lykdat",
+        "configured": false,
+        "missing": [
+          "LYKDAT_API_KEY"
+        ]
+      }
+    ],
+    "generation": [
+      {
+        "id": "fashn",
+        "label": "FASHN",
+        "model": "FASHN Agent Images (Packshot)",
+        "configured": false,
+        "available": false,
+        "missing": [
+          "FASHN_API_KEY"
+        ]
+      },
+      {
+        "id": "fal",
+        "label": "fal.ai",
+        "model": "Qwen-Image-Edit-2511 (fal.ai fal-ai/qwen-image-edit-2511)",
+        "configured": false,
+        "available": false,
+        "missing": [
+          "FAL_KEY"
+        ]
+      },
+      {
+        "id": "comfy",
+        "label": "ComfyUI (servidor propio)",
+        "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+        "configured": true,
+        "available": true,
+        "missing": []
+      }
+    ],
+    "webImages": "link_preview",
+    "limits": {
+      "searchesPerDay": 40,
+      "generationsPerDay": 20,
+      "monthlyBudgetCents": 5000,
+      "maxAttempts": 3
+    }
+  },
+  "results": [
+    {
+      "scenario": "camiseta-arrugada-cama",
+      "label": "Polo arrugado sobre una cama (con logotipo)",
+      "file": "ov_polo_shirt_10.jpg",
+      "detection": 1,
+      "category": "top",
+      "subcategory": "polo",
+      "askedForAnotherPhoto": "La prenda sale cortada por los bordes de la foto: haz otra con la prenda entera para no inventar las partes que no se ven.",
+      "forced": true,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 757301,
+          "check": {
+            "neat": 0.7331,
+            "passed": true,
+            "reasons": [],
+            "symmetry": 0.9433,
+            "textMatch": null,
+            "similarity": 0.7326,
+            "paletteDeltaE": 3.338,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.7331,
+        "passed": true,
+        "reasons": [],
+        "symmetry": 0.9433,
+        "textMatch": null,
+        "similarity": 0.7326,
+        "paletteDeltaE": 3.338,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.041,
+          "extent": 0.9111,
+          "symmetry": 0.8564,
+          "tilt": 3,
+          "components": 1,
+          "neat": 0.2225,
+          "worn": 0.1394,
+          "passed": false,
+          "reasons": [
+            "La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.",
+            "No parece una foto de producto ordenada (sigue arrugada, doblada o colgada)."
+          ],
+          "codes": [
+            "asymmetric",
+            "messy"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9649,
+          "category": "top",
+          "subcategory": "polo",
+          "same_category": true,
+          "pattern": null,
+          "reference_pattern": "liso",
+          "palette_emd": 4.013,
+          "lightness_shift": 0.83,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0001,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "percha",
+      "label": "Camiseta colgada en una percha",
+      "file": "ov_dress_on_hanger_08.jpg",
+      "detection": 1,
+      "category": "top",
+      "subcategory": "camiseta",
+      "askedForAnotherPhoto": null,
+      "forced": false,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 794775,
+          "check": {
+            "neat": 0.8402,
+            "passed": true,
+            "reasons": [],
+            "symmetry": 0.9125,
+            "textMatch": null,
+            "similarity": 0.9022,
+            "paletteDeltaE": 0,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.8402,
+        "passed": true,
+        "reasons": [],
+        "symmetry": 0.9125,
+        "textMatch": null,
+        "similarity": 0.9022,
+        "paletteDeltaE": 0,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.0486,
+          "extent": 0.9017,
+          "symmetry": 0.8624,
+          "tilt": 0.5,
+          "components": 1,
+          "neat": 0.5674,
+          "worn": 0.0467,
+          "passed": false,
+          "reasons": [
+            "La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos."
+          ],
+          "codes": [
+            "asymmetric"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9878,
+          "category": "top",
+          "subcategory": "camiseta",
+          "same_category": true,
+          "pattern": "liso",
+          "reference_pattern": "liso",
+          "palette_emd": 0,
+          "lightness_shift": 0,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0017,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "pantalon-doblado",
+      "label": "Vaquero doblado con cinturón",
+      "file": "ov_folded_jeans_05.jpg",
+      "detection": 1,
+      "category": "bottom",
+      "subcategory": "vaquero",
+      "askedForAnotherPhoto": null,
+      "forced": false,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 479575,
+          "check": {
+            "neat": 0.8124,
+            "passed": true,
+            "reasons": [],
+            "symmetry": 0.9231,
+            "textMatch": null,
+            "similarity": 0.7824,
+            "paletteDeltaE": 10.369,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.8124,
+        "passed": true,
+        "reasons": [],
+        "symmetry": 0.9231,
+        "textMatch": null,
+        "similarity": 0.7824,
+        "paletteDeltaE": 10.369,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.05,
+          "extent": 0.9,
+          "symmetry": 0.7979,
+          "tilt": 4,
+          "components": 1,
+          "neat": 0.4598,
+          "worn": 0.0394,
+          "passed": false,
+          "reasons": [
+            "La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.",
+            "No parece una foto de producto ordenada (sigue arrugada, doblada o colgada)."
+          ],
+          "codes": [
+            "asymmetric",
+            "messy"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9857,
+          "category": "bottom",
+          "subcategory": "vaquero",
+          "same_category": true,
+          "pattern": "liso",
+          "reference_pattern": "liso",
+          "palette_emd": 4.748,
+          "lightness_shift": 4.64,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.005,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "jersey-mangas-recogidas",
+      "label": "Chaqueta de punto con las mangas recogidas",
+      "file": "ov_cardigan_03.jpg",
+      "detection": 1,
+      "category": "top",
+      "subcategory": "jersey_grueso",
+      "askedForAnotherPhoto": null,
+      "forced": false,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 900085,
+          "check": null,
+          "error": "La generación ha tardado demasiado.",
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        },
+        {
+          "n": 2,
+          "ms": 755285,
+          "check": {
+            "neat": 0.8739,
+            "passed": true,
+            "reasons": [],
+            "symmetry": 0.9533,
+            "textMatch": null,
+            "similarity": 0.8852,
+            "paletteDeltaE": 5.61,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.8739,
+        "passed": true,
+        "reasons": [],
+        "symmetry": 0.9533,
+        "textMatch": null,
+        "similarity": 0.8852,
+        "paletteDeltaE": 5.61,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.0411,
+          "extent": 0.9179,
+          "symmetry": 0.8064,
+          "tilt": 5.5,
+          "components": 1,
+          "neat": 0.7024,
+          "worn": 0.0787,
+          "passed": false,
+          "reasons": [
+            "La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.",
+            "La prenda está torcida: no está fotografiada de frente y recta."
+          ],
+          "codes": [
+            "asymmetric",
+            "tilted"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9818,
+          "category": "top",
+          "subcategory": "jersey_grueso",
+          "same_category": true,
+          "pattern": "espiguilla",
+          "reference_pattern": "espiguilla",
+          "palette_emd": 2.049,
+          "lightness_shift": 0.12,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0001,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "chaqueta-puesta",
+      "label": "Plumífero llevado por una persona",
+      "file": "ov_puffer_jacket_01.jpg",
+      "detection": 1,
+      "category": "outerwear",
+      "subcategory": "plumifero",
+      "askedForAnotherPhoto": null,
+      "forced": false,
+      "status": "needs_user",
+      "message": "Tras 3 intentos, la foto generada no es del todo fiel o no está bien colocada: Ha cambiado los colores de la prenda. Puedes reintentarlo, hacer otra foto (prenda extendida y con buena luz) o usarla igualmente.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 754428,
+          "check": {
+            "neat": 0.6401,
+            "passed": false,
+            "reasons": [
+              "El fondo no es un fondo de estudio liso y claro.",
+              "La prenda está cortada por el borde de la imagen.",
+              "Ha cambiado los colores de la prenda."
+            ],
+            "symmetry": 0.9511,
+            "textMatch": null,
+            "similarity": 0.7483,
+            "paletteDeltaE": 15.832,
+            "fidelityPassed": false,
+            "presentationPassed": false
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        },
+        {
+          "n": 2,
+          "ms": 383801,
+          "check": {
+            "neat": 0.8227,
+            "passed": false,
+            "reasons": [
+              "Ha cambiado los colores de la prenda."
+            ],
+            "symmetry": 0.889,
+            "textMatch": null,
+            "similarity": 0.7662,
+            "paletteDeltaE": 15.128,
+            "fidelityPassed": false,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        },
+        {
+          "n": 3,
+          "ms": 478079,
+          "check": {
+            "neat": 0.7951,
+            "passed": false,
+            "reasons": [
+              "Ha cambiado los colores de la prenda."
+            ],
+            "symmetry": 0.9634,
+            "textMatch": null,
+            "similarity": 0.7858,
+            "paletteDeltaE": 15.152,
+            "fidelityPassed": false,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.7951,
+        "passed": false,
+        "reasons": [
+          "Ha cambiado los colores de la prenda."
+        ],
+        "symmetry": 0.9634,
+        "textMatch": null,
+        "similarity": 0.7858,
+        "paletteDeltaE": 15.152,
+        "fidelityPassed": false,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.0654,
+          "extent": 0.8693,
+          "symmetry": 0.8857,
+          "tilt": 1.5,
+          "components": 1,
+          "neat": 0.4932,
+          "worn": 0.0733,
+          "passed": false,
+          "reasons": [
+            "No parece una foto de producto ordenada (sigue arrugada, doblada o colgada)."
+          ],
+          "codes": [
+            "messy"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9843,
+          "category": "outerwear",
+          "subcategory": "plumifero",
+          "same_category": true,
+          "pattern": "liso",
+          "reference_pattern": "liso",
+          "palette_emd": 2.898,
+          "lightness_shift": 1.41,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0001,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "zapatilla-lateral",
+      "label": "Zapatilla fotografiada de lado",
+      "file": "ov_sneakers_shoes_12.jpg",
+      "detection": 1,
+      "category": "footwear",
+      "subcategory": "zapatillas_running",
+      "askedForAnotherPhoto": null,
+      "forced": false,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 750559,
+          "check": {
+            "neat": 0.5582,
+            "passed": true,
+            "reasons": [],
+            "symmetry": null,
+            "textMatch": null,
+            "similarity": 0.9309,
+            "paletteDeltaE": 4.352,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.5582,
+        "passed": true,
+        "reasons": [],
+        "symmetry": null,
+        "textMatch": null,
+        "similarity": 0.9309,
+        "paletteDeltaE": 4.352,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.04,
+          "extent": 0.9189,
+          "symmetry": null,
+          "tilt": null,
+          "components": 1,
+          "neat": 0.4941,
+          "worn": 0.1371,
+          "passed": false,
+          "reasons": [
+            "No parece una foto de producto ordenada (sigue arrugada, doblada o colgada)."
+          ],
+          "codes": [
+            "messy"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9673,
+          "category": "footwear",
+          "subcategory": "zapatillas_running",
+          "same_category": true,
+          "pattern": "grafico",
+          "reference_pattern": null,
+          "palette_emd": 1.374,
+          "lightness_shift": 0.12,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "estampada",
+      "label": "Camiseta estampada en una percha de tienda",
+      "file": "wm_t_shirts_07.jpg",
+      "detection": 1,
+      "category": "top",
+      "subcategory": "camiseta",
+      "askedForAnotherPhoto": "La prenda sale cortada por los bordes de la foto: haz otra con la prenda entera para no inventar las partes que no se ven.",
+      "forced": true,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 462143,
+          "check": {
+            "neat": 0.6881,
+            "passed": true,
+            "reasons": [],
+            "symmetry": 0.9759,
+            "textMatch": null,
+            "similarity": 0.7873,
+            "paletteDeltaE": 4.989,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.6881,
+        "passed": true,
+        "reasons": [],
+        "symmetry": 0.9759,
+        "textMatch": null,
+        "similarity": 0.7873,
+        "paletteDeltaE": 4.989,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.04,
+          "extent": 0.9189,
+          "symmetry": 0.8792,
+          "tilt": 2,
+          "components": 1,
+          "neat": 0.3845,
+          "worn": 0.1944,
+          "passed": false,
+          "reasons": [
+            "La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.",
+            "No parece una foto de producto ordenada (sigue arrugada, doblada o colgada)."
+          ],
+          "codes": [
+            "asymmetric",
+            "messy"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9583,
+          "category": "top",
+          "subcategory": "camiseta",
+          "same_category": true,
+          "pattern": "grafico",
+          "reference_pattern": "grafico",
+          "palette_emd": 0.809,
+          "lightness_shift": 0.44,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0001,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "varias-prendas",
+      "label": "Varias prendas sobre una cama",
+      "file": "ov_clothes_on_bed_01.jpg",
+      "detection": 1,
+      "category": "accessory",
+      "subcategory": "sombrero",
+      "askedForAnotherPhoto": "La prenda sale muy pequeña en la foto: haz otra más cerca para reconstruirla sin inventar detalles.",
+      "forced": true,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 180868,
+          "check": {
+            "neat": 0.8409,
+            "passed": true,
+            "reasons": [],
+            "symmetry": null,
+            "textMatch": null,
+            "similarity": 0.9308,
+            "paletteDeltaE": 2.935,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.8409,
+        "passed": true,
+        "reasons": [],
+        "symmetry": null,
+        "textMatch": null,
+        "similarity": 0.9308,
+        "paletteDeltaE": 2.935,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.1489,
+          "extent": 0.7021,
+          "symmetry": null,
+          "tilt": null,
+          "components": 1,
+          "neat": 0.6847,
+          "worn": 0.0575,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        },
+        "fidelity": {
+          "similarity": 0.9907,
+          "category": "accessory",
+          "subcategory": "sombrero",
+          "same_category": true,
+          "pattern": "liso",
+          "reference_pattern": "liso",
+          "palette_emd": 0.233,
+          "lightness_shift": 0.39,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "varias-prendas",
+      "label": "Varias prendas sobre una cama",
+      "file": "ov_clothes_on_bed_01.jpg",
+      "detection": 2,
+      "category": "accessory",
+      "subcategory": "bufanda",
+      "askedForAnotherPhoto": null,
+      "forced": false,
+      "status": "needs_user",
+      "message": "Tras 3 intentos, la foto generada no es del todo fiel o no está bien colocada: Muestra otro tipo de prenda. No se parece lo suficiente a tu prenda. Puedes reintentarlo, hacer otra foto (prenda extendida y con buena luz) o usarla igualmente.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 453672,
+          "check": {
+            "neat": 0.6859,
+            "passed": false,
+            "reasons": [
+              "Muestra otro tipo de prenda.",
+              "No se parece lo suficiente a tu prenda."
+            ],
+            "symmetry": null,
+            "textMatch": null,
+            "similarity": 0.6814,
+            "paletteDeltaE": 7.671,
+            "fidelityPassed": false,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        },
+        {
+          "n": 2,
+          "ms": 458040,
+          "check": {
+            "neat": 0.7654,
+            "passed": false,
+            "reasons": [
+              "El fondo no es un fondo de estudio liso y claro.",
+              "Muestra otro tipo de prenda.",
+              "No se parece lo suficiente a tu prenda."
+            ],
+            "symmetry": null,
+            "textMatch": null,
+            "similarity": 0.6757,
+            "paletteDeltaE": 7.477,
+            "fidelityPassed": false,
+            "presentationPassed": false
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        },
+        {
+          "n": 3,
+          "ms": 752624,
+          "check": {
+            "neat": 0.764,
+            "passed": false,
+            "reasons": [
+              "Muestra otro tipo de prenda.",
+              "No se parece lo suficiente a tu prenda."
+            ],
+            "symmetry": null,
+            "textMatch": null,
+            "similarity": 0.6807,
+            "paletteDeltaE": 5.148,
+            "fidelityPassed": false,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.6859,
+        "passed": false,
+        "reasons": [
+          "Muestra otro tipo de prenda.",
+          "No se parece lo suficiente a tu prenda."
+        ],
+        "symmetry": null,
+        "textMatch": null,
+        "similarity": 0.6814,
+        "paletteDeltaE": 7.671,
+        "fidelityPassed": false,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.093,
+          "extent": 0.8118,
+          "symmetry": null,
+          "tilt": null,
+          "components": 1,
+          "neat": 0.501,
+          "worn": 0.0615,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        },
+        "fidelity": {
+          "similarity": 0.9715,
+          "category": "accessory",
+          "subcategory": "bufanda",
+          "same_category": true,
+          "pattern": "liso",
+          "reference_pattern": null,
+          "palette_emd": 1.497,
+          "lightness_shift": 2.13,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    },
+    {
+      "scenario": "varias-prendas",
+      "label": "Varias prendas sobre una cama",
+      "file": "ov_clothes_on_bed_01.jpg",
+      "detection": 3,
+      "category": "accessory",
+      "subcategory": "",
+      "askedForAnotherPhoto": "La prenda sale muy pequeña en la foto: haz otra más cerca para reconstruirla sin inventar detalles.",
+      "forced": false,
+      "status": "needs_user",
+      "message": "La prenda sale muy pequeña en la foto: haz otra más cerca para reconstruirla sin inventar detalles.",
+      "model": null,
+      "attempts": [],
+      "finalCheck": null,
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.2132,
+          "extent": 0.5736,
+          "symmetry": null,
+          "tilt": null,
+          "components": 1,
+          "neat": 0.5414,
+          "worn": 0.0658,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        },
+        "fidelity": {
+          "similarity": 0.984,
+          "category": "accessory",
+          "subcategory": null,
+          "same_category": true,
+          "pattern": "liso",
+          "reference_pattern": "liso",
+          "palette_emd": 0.278,
+          "lightness_shift": 0.17,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0001,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    }
+  ]
+}

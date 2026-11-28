@@ -11,6 +11,9 @@ regexTarget = "secret"
 regexes = [
   # .env.example: the generic rule reads past the empty `EBAY_CLIENT_SECRET=` into the next line.
   '''^EBAY_MARKETPLACE_ID=EBAY_ES$''',
+  # .env.example: same after the empty `SERPAPI_API_KEY=` and `LYKDAT_API_KEY=` (catalogue photo).
+  '''^SERPAPI_COUNTRY=es$''',
+  '''^LYKDAT_COST_CENTS=1\.67$''',
   # services/api/test/integration/api.test.ts: deliberately wrong password for the failed-login test.
   '''^incorrecta-123$''',
 ]

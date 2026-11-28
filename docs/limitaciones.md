@@ -30,10 +30,24 @@ Lista honesta de lo que **no** funciona todavía o funciona con restricciones.
 10. **Docker Compose** no se ha podido probar en la máquina de desarrollo (sin Docker); la configuración
     local equivalente (Homebrew) sí está probada.
 11. **S3**: el controlador S3 está implementado pero los tests usan almacenamiento local.
-12. **Probador virtual**: no implementado.
+12. **Probador virtual y fotos generadas** ([probador-virtual.md](probador-virtual.md),
+    [generacion-imagenes.md](generacion-imagenes.md)): funcionan en local con modelos abiertos, pero en
+    el Mac de desarrollo tardan minutos con los métodos antiguos (1,5–2 min por prenda con FASHN, ~3 min con Qwen); el probador rápido (por defecto) tarda 17–23 s y la foto de catálogo 14–22 s por intento con klein en MLX (resultados de los controles ciegos en [evidence/foto-estudio-30s-2026-11-27.md](evidence/foto-estudio-30s-2026-11-27.md)); FASHN no
+    viste calzado ni complementos (van en una pasada de Qwen-Image-Edit); con ropa voluminosa en la foto
+    del avatar quedan artefactos en la cintura; el control de fidelidad compara aspecto y color por
+    zona, no detalles finos. SAM 3 no integrado (pesos tras formulario de acceso). Sapiens2 License y
+    EIPD de las fotos de cuerpo: revisión legal pendiente.
 13. **App móvil**: verificada en el simulador de iOS (ver [evidencia](evidence/ios-simulador-2026-11-24.md)).
     Sin verificar en tiempo de ejecución: extensión de compartir, arrastrar y soltar del planificador,
     exportación de imágenes, Android y iPhone físico (requiere firmar con tu equipo de Apple; la
     extensión de compartir con un Apple ID gratuito puede fallar por el App Group). La cola de subidas
     vive en memoria: si se cierra la app durante una subida, esas fotos se pierden. No hay OCR en el
     dispositivo (se usa el del servidor).
+14. **Foto de catálogo** ([foto-catalogo.md](foto-catalogo.md)): la búsqueda inversa en Internet (Google
+    Lens vía SerpApi, Cloud Vision, Lykdat) y los generadores de pago (FASHN, fal.ai) están integrados
+    pero **sin claves en este entorno**: no se ha hecho ninguna búsqueda real en Internet; la evidencia
+    usa Qwen-Image-Edit-2511 local. Lykdat tiene la consola caída (HTTP 402) y SerpApi se describe como
+    *scraping* de Google. Mostrar por referencia fotos de tiendas sin acuerdo y los DPA con cada
+    proveedor: revisión legal pendiente. Un detalle pequeño (un botón, una costura) puede pasar el
+    control automático. Si el recorte o el tipo detectados ya son erróneos, el resultado parte de ese
+    error. La app muestra siempre la foto real al lado y permite corregir y regenerar.

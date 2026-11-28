@@ -34,14 +34,24 @@ class StubBackend:
 
     def __init__(self) -> None:
         rng = np.random.default_rng(1234)
-        self._projection = rng.standard_normal((8 * 8 * 3 + 3, STUB_DIM)).astype(np.float32)
+        self._projection = rng.standard_normal((8 * 8 * 3 + 3, STUB_DIM)).astype(
+            np.float32
+        )
 
     # -- embeddings -------------------------------------------------------
     def embed_images(self, images: Sequence[Image.Image]) -> np.ndarray:
         feats = []
         for img in images:
-            small = np.asarray(img.convert("RGB").resize((8, 8), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
-            vec = np.concatenate([small.reshape(-1) - 0.5, small.reshape(-1, 3).std(axis=0)])
+            small = (
+                np.asarray(
+                    img.convert("RGB").resize((8, 8), Image.Resampling.BILINEAR),
+                    dtype=np.float32,
+                )
+                / 255.0
+            )
+            vec = np.concatenate(
+                [small.reshape(-1) - 0.5, small.reshape(-1, 3).std(axis=0)]
+            )
             feats.append(vec @ self._projection)
         out = np.stack(feats) if feats else np.zeros((0, STUB_DIM), np.float32)
         return _l2(out)
@@ -49,8 +59,12 @@ class StubBackend:
     def embed_texts(self, texts: Sequence[str]) -> np.ndarray:
         rows = []
         for text in texts:
-            seed = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
-            rows.append(np.random.default_rng(seed).standard_normal(STUB_DIM).astype(np.float32))
+            seed = int.from_bytes(
+                hashlib.sha256(text.encode("utf-8")).digest()[:8], "big"
+            )
+            rows.append(
+                np.random.default_rng(seed).standard_normal(STUB_DIM).astype(np.float32)
+            )
         out = np.stack(rows) if rows else np.zeros((0, STUB_DIM), np.float32)
         return _l2(out)
 
@@ -61,15 +75,34 @@ class StubBackend:
         step = max(1, int(max(h, w) // 512))
         lab = rgb_to_lab(rgb[::step, ::step].astype(np.float64))
         b = max(1, min(lab.shape[:2]) // 50)
-        frame = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3), lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
+        frame = np.concatenate(
+            [
+                lab[:b].reshape(-1, 3),
+                lab[-b:].reshape(-1, 3),
+                lab[:, :b].reshape(-1, 3),
+                lab[:, -b:].reshape(-1, 3),
+            ]
+        )
         diff = np.linalg.norm(lab - np.median(frame, axis=0), axis=2) > 12.0
         diff = ndimage.binary_opening(diff, iterations=1)
         diff = ndimage.binary_fill_holes(diff)
-        mask = np.asarray(Image.fromarray((diff * 255).astype(np.uint8)).resize((w, h), Image.Resampling.NEAREST))
+        mask = np.asarray(
+            Image.fromarray((diff * 255).astype(np.uint8)).resize(
+                (w, h), Image.Resampling.NEAREST
+            )
+        )
         return mask.astype(np.float32) / 255.0
 
+    def matte_studio(self, image: Image.Image) -> np.ndarray:
+        return self.remove_background(image)
+
     def detect(
-        self, image: Image.Image, queries: Sequence[str], threshold: float, *, short_side: int | None = None
+        self,
+        image: Image.Image,
+        queries: Sequence[str],
+        threshold: float,
+        *,
+        short_side: int | None = None,
     ) -> list[Detection]:
         mask = self.remove_background(image) > 0.5
         labels, n = ndimage.label(mask)
@@ -78,10 +111,43 @@ class StubBackend:
             if sl is None:
                 continue
             ys, xs = sl
-            out.append(Detection(box=(float(xs.start), float(ys.start), float(xs.stop), float(ys.stop)), score=0.5, label="object"))
+            out.append(
+                Detection(
+                    box=(
+                        float(xs.start),
+                        float(ys.start),
+                        float(xs.stop),
+                        float(ys.stop),
+                    ),
+                    score=0.5,
+                    label="object",
+                )
+            )
         return out
 
-    def segment_boxes(self, image: Image.Image, boxes: Sequence[tuple[float, float, float, float]]) -> list[np.ndarray]:
+    def segment_points(
+        self,
+        image: Image.Image,
+        points: Sequence[tuple[float, float, int]],
+        box: tuple[float, float, float, float] | None = None,
+    ) -> np.ndarray:
+        """Deterministic stand-in: discs of radius 25 % of the short side around positive points, minus negatives."""
+        w, h = image.size
+        yy, xx = np.mgrid[0:h, 0:w]
+        r = 0.25 * min(w, h)
+        mask = np.zeros((h, w), np.float32)
+        for x, y, lbl in points:
+            disc = (xx - x) ** 2 + (yy - y) ** 2 <= r * r
+            mask = (
+                np.where(disc, 1.0 if lbl == 1 else 0.0, mask)
+                if lbl == 1
+                else np.where(disc, 0.0, mask)
+            )
+        return mask
+
+    def segment_boxes(
+        self, image: Image.Image, boxes: Sequence[tuple[float, float, float, float]]
+    ) -> list[np.ndarray]:
         fg = self.remove_background(image)
         masks = []
         for x0, y0, x1, y1 in boxes:

@@ -9,6 +9,7 @@ import { categoryLabel, colorHex, fitLabel, materialLabel, patternLabel, seasonL
 import { radius, space, useTheme } from '@/theme';
 
 import { familiesFromColors } from '../wardrobe/GarmentFields';
+import { CatalogPhotoPreview } from './CatalogPhotoPreview';
 
 type PredKey = 'category' | 'subcategory' | 'pattern' | 'materials' | 'styles' | 'seasons' | 'fit' | 'brand' | 'formality' | 'warmth';
 const PRED_ORDER: PredKey[] = ['category', 'subcategory', 'brand', 'pattern', 'materials', 'styles', 'seasons', 'fit', 'formality', 'warmth'];
@@ -44,6 +45,8 @@ function label(key: PredKey, value: unknown): string {
 export function draftFromDetection(d: DetectionDto, overrides?: GarmentWriteDto): GarmentWriteDto {
   const p = d.predicted;
   const base: GarmentWriteDto = {
+    // The vision-language model's shop-style name ("Sudadera con capucha roja"), capitalised.
+    ...(p.vlm?.nameEs ? { name: p.vlm.nameEs.charAt(0).toUpperCase() + p.vlm.nameEs.slice(1) } : {}),
     category: p.category?.value,
     subcategory: p.subcategory?.value,
     colors: p.colors?.map((c) => ({ hex: c.hex, share: c.share })),
@@ -69,9 +72,11 @@ export interface DetectionCardProps {
   onEdit: () => void;
   accepting?: boolean;
   rejecting?: boolean;
+  /** When set, offers "Corregir recorte" (manual points on the photo). */
+  jobId?: string;
 }
 
-export function DetectionCard({ detection: d, index, overrides, onOverride, onAccept, onReject, onEdit, accepting, rejecting }: DetectionCardProps) {
+export function DetectionCard({ detection: d, index, overrides, onOverride, onAccept, onReject, onEdit, accepting, rejecting, jobId }: DetectionCardProps) {
   const { t } = useTranslation('capture');
   const { colors } = useTheme();
   const router = useRouter();
@@ -94,6 +99,16 @@ export function DetectionCard({ detection: d, index, overrides, onOverride, onAc
         <View style={{ flex: 1, gap: space.xs }}>
           <Text variant="subheading">{title}</Text>
           {edited ? <Badge label={t('review.edited')} tone="accent" icon="edit-2" /> : null}
+          {jobId && d.state === 'pending' ? (
+            <Button
+              label="Corregir recorte"
+              size="sm"
+              variant="ghost"
+              icon="scissors"
+              onPress={() => router.push({ pathname: '/garment/recut', params: { jobId, detectionId: d.id } })}
+              testID={`detection-${d.id}-recut`}
+            />
+          ) : null}
           {families.length ? (
             <View style={styles.swatches} accessible accessibilityLabel={`${t('review.fields.colors')}: ${families.join(', ')}`}>
               {families.map((f) => (
@@ -124,6 +139,8 @@ export function DetectionCard({ detection: d, index, overrides, onOverride, onAc
             </View>
           </View>
         ) : null}
+
+        {d.catalogPhoto && jobId && d.state === 'pending' ? <CatalogPhotoPreview summary={d.catalogPhoto} importJobId={jobId} detectionId={d.id} /> : null}
 
         <Text variant="overline" tone="muted">
           {t('review.predicted')}

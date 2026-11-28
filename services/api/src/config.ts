@@ -25,6 +25,90 @@ const schema = z.object({
   S3_FORCE_PATH_STYLE: bool,
   VISION_SERVICE_URL: z.string().default('http://localhost:8001'),
   VISION_TIMEOUT_MS: z.coerce.number().default(120_000),
+  // Image generation (catalogue packshots, avatar renders) through a ComfyUI server. Empty = disabled.
+  IMAGEGEN_COMFY_URL: z.string().optional(),
+  /** Local studio-photo server without ComfyUI (services/imagegen/mlx, FLUX.2 klein in MLX). */
+  IMAGEGEN_MLX_URL: z.string().optional(),
+  IMAGEGEN_TIMEOUT_MS: z.coerce.number().default(15 * 60_000),
+  /** Workflow reported as the garment-photo model in GET /v1/generation/status (the catalogue packshot). */
+  IMAGEGEN_STUDIO_WORKFLOW: z.string().default('packshot-fast'),
+  IMAGEGEN_AVATAR_WORKFLOW: z.string().default('avatar'),
+  // Dedicated try-on service (services/tryon). Empty = only the joint (generative) method.
+  TRYON_SERVICE_URL: z.string().optional(),
+  TRYON_STEPS: z.coerce.number().int().min(4).max(50).default(20),
+  TRYON_TIMEOUT_MS: z.coerce.number().default(10 * 60_000),
+  /** Default try-on method when both are available (chosen from the benchmark in docs/probador-virtual.md). */
+  AVATAR_METHOD: z.enum(['fast', 'sequential', 'joint']).default('fast'),
+  // Gate on the worn garments (Sapiens2 regions vs the real garment): calibrated in docs/probador-virtual.md.
+  TRYON_MIN_SIMILARITY: z.coerce.number().default(0.6),
+  TRYON_MAX_DELTA_E: z.coerce.number().default(15),
+  // Avatar renders: minimum mean similarity of the outfit's garments found in the render. Only a
+  // filter for gross failures: on worn garments the detector is too weak to judge details (a good
+  // and a wrong render both scored ~0.66 on 2026-11-24); the user judges the result next to the outfit.
+  IMAGEGEN_AVATAR_MIN_SIMILARITY: z.coerce.number().default(0.5),
+  // --- Catalogue photo (docs/foto-catalogo.md): reverse image search first, generative packshot second.
+  /** Start the catalogue photo of every new detection automatically (false: only on request). */
+  CATALOG_PHOTO_AUTO: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || v === 'true' || v === '1'),
+  /**
+   * Import detection by the local vision-language model (IMAGEGEN_MLX_URL): it finds and describes each
+   * garment as ONE item in the whole photo and the vision service segments its boxes; the vision
+   * detector is used when it is off or unavailable.
+   */
+  IMPORT_VLM_DETECTION: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || v === 'true' || v === '1'),
+  /** Which photo variants are searched: the garment crop, the whole photo, or both. */
+  CATALOG_SEARCH_QUERIES: z.string().default('crop,full'),
+  /** Google Lens through SerpApi (https://serpapi.com/google-lens-api). */
+  SERPAPI_API_KEY: z.string().optional(),
+  SERPAPI_COUNTRY: z.string().default('es'),
+  SERPAPI_HL: z.string().default('es'),
+  SERPAPI_COST_CENTS: z.coerce.number().default(2.5),
+  /** Google Cloud Vision Web Detection (https://docs.cloud.google.com/vision/docs/detecting-web). */
+  GOOGLE_CLOUD_VISION_API_KEY: z.string().optional(),
+  GOOGLE_CLOUD_VISION_COST_CENTS: z.coerce.number().default(0.35),
+  /** Lykdat Global Search (https://apidocs.lykdat.com/). */
+  LYKDAT_API_KEY: z.string().optional(),
+  LYKDAT_COST_CENTS: z.coerce.number().default(1.67),
+  /** Verified-match thresholds (FashionSigLIP similarity with the user's garment). */
+  OFFICIAL_PHOTO_EXACT_SIMILARITY: z.coerce.number().default(0.86),
+  OFFICIAL_PHOTO_POSSIBLE_SIMILARITY: z.coerce.number().default(0.78),
+  /** Store photos found on the web (not in a licensed feed): link_preview = shown to the owner by
+   *  reference from the store (never copied, with attribution); none = only used to identify the product. */
+  OFFICIAL_PHOTO_WEB_IMAGES: z.enum(['link_preview', 'none']).default('link_preview'),
+  /** Generators in order of preference; the first configured is primary, the next ones fallbacks. */
+  PACKSHOT_PROVIDERS: z.string().default('fashn,fal,mlx'),
+  /** FASHN Agent Images (https://docs.fashn.ai/api-reference/agent-images). */
+  FASHN_API_KEY: z.string().optional(),
+  FASHN_GENERATION_MODE: z.enum(['fast', 'balanced', 'quality']).default('balanced'),
+  FASHN_RESOLUTION: z.enum(['1k', '2k', '3k', '4k']).default('1k'),
+  FASHN_CENTS_PER_CREDIT: z.coerce.number().default(7.5),
+  /** fal.ai queue API with Qwen-Image-Edit-2511 (https://fal.ai/models/fal-ai/qwen-image-edit-2511). */
+  FAL_KEY: z.string().optional(),
+  FAL_PACKSHOT_MODEL: z.string().default('fal-ai/qwen-image-edit-2511'),
+  FAL_COST_CENTS: z.coerce.number().default(3.5),
+  /** ComfyUI workflow (IMAGEGEN_COMFY_URL) for the local/self-hosted packshot. */
+  IMAGEGEN_PACKSHOT_WORKFLOW: z.string().default('packshot'),
+  /** `studio`: studio photo from the original, light grey background, cutout afterwards (2026-11-25); `packshot`: the earlier white packshot prompt. */
+  CATALOG_STUDIO_PROMPT: z.enum(['studio', 'packshot']).default('studio'),
+  /**
+   * Daily generation attempts per user on this server's own free generators (MLX, ComfyUI): enough to
+   * import a whole wardrobe at once (~100 garments with retries) while keeping one user from
+   * monopolising the GPU. Paid providers are bounded by CATALOG_DAILY_GENERATIONS_PER_USER.
+   */
+  CATALOG_DAILY_LOCAL_GENERATIONS_PER_USER: z.coerce.number().int().min(1).default(300),
+  PACKSHOT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(3),
+  PACKSHOT_TIMEOUT_MS: z.coerce.number().default(15 * 60_000),
+  /** Cost control: per-user daily limits and a monthly budget (cents) for all paid providers together. */
+  CATALOG_DAILY_SEARCHES_PER_USER: z.coerce.number().int().default(40),
+  CATALOG_DAILY_GENERATIONS_PER_USER: z.coerce.number().int().default(20),
+  CATALOG_MONTHLY_BUDGET_CENTS: z.coerce.number().default(5000),
+  CATALOG_SEARCH_CACHE_DAYS: z.coerce.number().int().default(30),
+  CATALOG_PHOTO_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   OPEN_METEO_API_KEY: z.string().optional(),
   LINK_IMPORT_USER_AGENT: z.string().default('DressItLinkPreview/0.1 (+https://github.com/Ale-Newport/DressIt)'),
   LINK_IMPORT_TIMEOUT_MS: z.coerce.number().default(10_000),

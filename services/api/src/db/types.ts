@@ -81,6 +81,27 @@ export interface AuthSessions {
   user_id: string;
 }
 
+export interface AvatarBases {
+  background: string;
+  created_at: Generated<Timestamp>;
+  error: string | null;
+  id: Generated<string>;
+  image_id: string | null;
+  status: Generated<string>;
+  user_id: string;
+  view: string;
+}
+
+export interface AvatarProfiles {
+  attested_adult: Generated<boolean>;
+  attested_self: Generated<boolean>;
+  body_image_id: string | null;
+  created_at: Generated<Timestamp>;
+  face_image_id: string | null;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface CalendarEvents {
   all_day: Generated<boolean>;
   created_at: Generated<Timestamp>;
@@ -93,6 +114,34 @@ export interface CalendarEvents {
   source: string;
   starts_at: Timestamp;
   title: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface CatalogPhotoJobs {
+  attempts: Generated<number>;
+  bbox: Json | null;
+  candidates: Generated<Json>;
+  choice: string | null;
+  cost_cents: Generated<Numeric>;
+  created_at: Generated<Timestamp>;
+  cutout_image_id: string | null;
+  detection_id: string | null;
+  error: string | null;
+  finished_at: Timestamp | null;
+  garment_id: string | null;
+  generated_image_id: string | null;
+  generation: Generated<Json>;
+  id: Generated<string>;
+  message: string | null;
+  mode: Generated<string>;
+  official_image_id: string | null;
+  official_match_id: string | null;
+  search: Generated<Json>;
+  source_image_id: string;
+  stage: Json | null;
+  status: Generated<string>;
+  trigger: string;
   updated_at: Generated<Timestamp>;
   user_id: string;
 }
@@ -146,6 +195,14 @@ export interface Consents {
   version: string;
 }
 
+export interface ExternalApiUsage {
+  calls: Generated<number>;
+  cost_cents: Generated<Numeric>;
+  day: Generated<string>;
+  provider: string;
+  user_id: string;
+}
+
 export interface GarmentAttributes {
   attribute: string;
   confidence: Numeric;
@@ -183,6 +240,7 @@ export interface GarmentImages {
   bytes: number | null;
   created_at: Generated<Timestamp>;
   garment_id: string | null;
+  generated_by: string | null;
   height: number | null;
   id: Generated<string>;
   kind: string;
@@ -244,6 +302,28 @@ export interface GarmentTags {
   garment_id: string;
   tag_id: string;
   user_id: string;
+}
+
+export interface GenerationJobs {
+  attempts: Generated<number>;
+  avatar_base_id: string | null;
+  created_at: Generated<Timestamp>;
+  error: string | null;
+  fidelity: Json | null;
+  finished_at: Timestamp | null;
+  garment_id: string | null;
+  id: Generated<string>;
+  input: Generated<Json>;
+  kind: string;
+  method: string | null;
+  model: string | null;
+  outfit_id: string | null;
+  progress: Json | null;
+  result_image_id: string | null;
+  started_at: Timestamp | null;
+  status: Generated<string>;
+  user_id: string;
+  workflow: string | null;
 }
 
 export interface ImportDetections {
@@ -531,6 +611,13 @@ export interface Trips {
   user_id: string;
 }
 
+export interface TryonCache {
+  created_at: Generated<Timestamp>;
+  image_id: string;
+  key: string;
+  user_id: string;
+}
+
 export interface UserPreferences {
   avoided_colors: Generated<string[]>;
   budget_max_eur: number | null;
@@ -565,6 +652,14 @@ export interface Users {
   plan: Generated<string>;
   timezone: Generated<string>;
   updated_at: Generated<Timestamp>;
+}
+
+export interface VisualSearchCache {
+  created_at: Generated<Timestamp>;
+  key: string;
+  provider: string;
+  response: Json;
+  user_id: string;
 }
 
 export interface Wardrobes {
@@ -620,16 +715,21 @@ export interface DB {
   audit_events: AuditEvents;
   auth_identities: AuthIdentities;
   auth_sessions: AuthSessions;
+  avatar_bases: AvatarBases;
+  avatar_profiles: AvatarProfiles;
   calendar_events: CalendarEvents;
+  catalog_photo_jobs: CatalogPhotoJobs;
   catalog_products: CatalogProducts;
   catalog_sync_runs: CatalogSyncRuns;
   consents: Consents;
+  external_api_usage: ExternalApiUsage;
   garment_attributes: GarmentAttributes;
   garment_availability: GarmentAvailability;
   garment_embeddings: GarmentEmbeddings;
   garment_images: GarmentImages;
   garment_tags: GarmentTags;
   garments: Garments;
+  generation_jobs: GenerationJobs;
   import_detections: ImportDetections;
   import_jobs: ImportJobs;
   import_sources: ImportSources;
@@ -653,8 +753,10 @@ export interface DB {
   tags: Tags;
   trip_items: TripItems;
   trips: Trips;
+  tryon_cache: TryonCache;
   user_preferences: UserPreferences;
   users: Users;
+  visual_search_cache: VisualSearchCache;
   wardrobe_spaces: WardrobeSpaces;
   wardrobes: Wardrobes;
   weather_snapshots: WeatherSnapshots;

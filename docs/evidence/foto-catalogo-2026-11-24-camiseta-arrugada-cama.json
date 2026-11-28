@@ -1,0 +1,193 @@
+{
+  "date": "2026-11-24",
+  "api": "http://localhost:3000",
+  "minutes": 4,
+  "status": {
+    "auto": true,
+    "search": [
+      {
+        "id": "catalog",
+        "label": "Catálogos autorizados",
+        "configured": true,
+        "missing": []
+      },
+      {
+        "id": "serpapi_lens",
+        "label": "Google Lens (SerpApi)",
+        "configured": false,
+        "missing": [
+          "SERPAPI_API_KEY"
+        ]
+      },
+      {
+        "id": "cloud_vision",
+        "label": "Google Cloud Vision (Web Detection)",
+        "configured": false,
+        "missing": [
+          "GOOGLE_CLOUD_VISION_API_KEY"
+        ]
+      },
+      {
+        "id": "lykdat",
+        "label": "Lykdat",
+        "configured": false,
+        "missing": [
+          "LYKDAT_API_KEY"
+        ]
+      }
+    ],
+    "generation": [
+      {
+        "id": "fashn",
+        "label": "FASHN",
+        "model": "FASHN Agent Images (Packshot)",
+        "configured": false,
+        "available": false,
+        "missing": [
+          "FASHN_API_KEY"
+        ]
+      },
+      {
+        "id": "fal",
+        "label": "fal.ai",
+        "model": "Qwen-Image-Edit-2511 (fal.ai fal-ai/qwen-image-edit-2511)",
+        "configured": false,
+        "available": false,
+        "missing": [
+          "FAL_KEY"
+        ]
+      },
+      {
+        "id": "comfy",
+        "label": "ComfyUI (servidor propio)",
+        "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+        "configured": true,
+        "available": true,
+        "missing": []
+      }
+    ],
+    "webImages": "link_preview",
+    "limits": {
+      "searchesPerDay": 40,
+      "generationsPerDay": 20,
+      "monthlyBudgetCents": 5000,
+      "maxAttempts": 3
+    }
+  },
+  "results": [
+    {
+      "scenario": "camiseta-arrugada-cama",
+      "label": "Polo arrugado sobre una cama (con logotipo)",
+      "file": "ov_polo_shirt_10.jpg",
+      "detection": 1,
+      "category": "top",
+      "subcategory": "polo",
+      "askedForAnotherPhoto": "La prenda sale cortada por los bordes de la foto: haz otra con la prenda entera para no inventar las partes que no se ven.",
+      "forced": true,
+      "status": "ready",
+      "message": "Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.",
+      "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+      "attempts": [
+        {
+          "n": 1,
+          "ms": 192646,
+          "check": {
+            "neat": 0.6816,
+            "passed": true,
+            "reasons": [],
+            "symmetry": 0.9728,
+            "textMatch": null,
+            "similarity": 0.8198,
+            "paletteDeltaE": 4.194,
+            "fidelityPassed": true,
+            "presentationPassed": true
+          },
+          "error": null,
+          "model": "Qwen-Image-Edit-2511 (Q4_K_M) + Lightning 4 pasos",
+          "provider": "comfy"
+        }
+      ],
+      "finalCheck": {
+        "neat": 0.6816,
+        "passed": true,
+        "reasons": [],
+        "symmetry": 0.9728,
+        "textMatch": null,
+        "similarity": 0.8198,
+        "paletteDeltaE": 4.194,
+        "fidelityPassed": true,
+        "presentationPassed": true
+      },
+      "control": {
+        "presentation": {
+          "background_l": 100,
+          "background_l_std": 0,
+          "background_chroma": 0,
+          "margin": 0.041,
+          "extent": 0.9111,
+          "symmetry": 0.8564,
+          "tilt": 3,
+          "components": 1,
+          "neat": 0.2225,
+          "worn": 0.1394,
+          "passed": false,
+          "reasons": [
+            "La prenda no está bien colocada: mangas, perneras o laterales no quedan simétricos.",
+            "No parece una foto de producto ordenada (sigue arrugada, doblada o colgada)."
+          ],
+          "codes": [
+            "asymmetric",
+            "messy"
+          ]
+        },
+        "fidelity": {
+          "similarity": 0.9649,
+          "category": "top",
+          "subcategory": "polo",
+          "same_category": true,
+          "pattern": null,
+          "reference_pattern": "liso",
+          "palette_emd": 4.013,
+          "lightness_shift": 0.83,
+          "missing_colors": [],
+          "extra_colors": [],
+          "texture_chi2": 0.0001,
+          "reference_text": null,
+          "candidate_text": null,
+          "text_match": null,
+          "passed": true,
+          "reasons": [],
+          "codes": []
+        }
+      },
+      "providers": [
+        {
+          "id": "catalog",
+          "label": "Catálogos autorizados",
+          "status": "no_results",
+          "message": "Sin productos parecidos en los catálogos conectados."
+        },
+        {
+          "id": "serpapi_lens",
+          "label": "Google Lens (SerpApi)",
+          "status": "not_configured",
+          "message": "Falta SERPAPI_API_KEY en el servidor."
+        },
+        {
+          "id": "cloud_vision",
+          "label": "Google Cloud Vision (Web Detection)",
+          "status": "not_configured",
+          "message": "Falta GOOGLE_CLOUD_VISION_API_KEY en el servidor."
+        },
+        {
+          "id": "lykdat",
+          "label": "Lykdat",
+          "status": "not_configured",
+          "message": "Falta LYKDAT_API_KEY en el servidor."
+        }
+      ],
+      "official": null,
+      "alternatives": 0
+    }
+  ]
+}

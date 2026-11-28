@@ -13,10 +13,16 @@ from ..prompts import translate_query
 QUERY_TEMPLATES: tuple[str, ...] = ("{}", "a photo of {}")
 
 
-def embed_text_queries(backend: VisionBackend, texts: list[str]) -> tuple[np.ndarray, list[str]]:
+def embed_text_queries(
+    backend: VisionBackend, texts: list[str]
+) -> tuple[np.ndarray, list[str]]:
     translated = [translate_query(t) for t in texts]
     expanded = [tpl.format(t) for t in translated for tpl in QUERY_TEMPLATES]
-    emb = backend.embed_texts(expanded).reshape(len(texts), len(QUERY_TEMPLATES), -1).mean(axis=1)
+    emb = (
+        backend.embed_texts(expanded)
+        .reshape(len(texts), len(QUERY_TEMPLATES), -1)
+        .mean(axis=1)
+    )
     emb /= np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-12)
     return emb.astype(np.float32), translated
 

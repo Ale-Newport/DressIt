@@ -32,6 +32,7 @@ export function garmentSelect(trx: Tx) {
     .select([
       'pi.id as img_id',
       'pi.kind as img_kind',
+      'pi.generated_by as img_generated_by',
       'pi.width as img_width',
       'pi.height as img_height',
       'pi.license as img_license',
@@ -359,7 +360,11 @@ export async function getGarmentDetail(trx: Tx, signer: UrlSigner, id: string): 
     ...toGarmentDto(row, signer),
     notes: row.notes,
     model: row.model,
-    images: images.filter((i) => i.kind === 'original' || i.kind === 'cutout' || i.kind === 'product_reference' || i.kind === 'label').map((i) => imageRef(signer, row.user_id, i)),
+    // The garment's main picture first (e.g. a studio photo the user chose), then the rest by date.
+    images: images
+      .filter((i) => i.kind === 'original' || i.kind === 'cutout' || i.kind === 'studio' || i.kind === 'product_reference' || i.kind === 'label')
+      .sort((a, b) => Number(b.id === row.primary_image_id) - Number(a.id === row.primary_image_id))
+      .map((i) => imageRef(signer, row.user_id, i)),
     attributes: attributes.map((a) => ({ attribute: a.attribute, value: a.value, confidence: Number(a.confidence), source: a.source, isCurrent: a.is_current, createdAt: a.created_at.toISOString() })),
     availabilityHistory: availability.map((a) => ({ status: a.status as GarmentStatus, startedAt: a.started_at.toISOString(), endedAt: a.ended_at?.toISOString() ?? null, note: a.lent_to ? `Prestada a ${a.lent_to}${a.note ? ` · ${a.note}` : ''}` : a.note })),
     wearHistory: wears.map((w) => ({ wornOn: w.worn_on, outfitId: w.outfit_id })),

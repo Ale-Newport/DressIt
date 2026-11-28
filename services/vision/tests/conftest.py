@@ -42,7 +42,9 @@ def jpeg_bytes(img: Image.Image, quality: int = 90, exif: bytes | None = None) -
     return buf.getvalue()
 
 
-def garment_image(color=(198, 40, 40), size=(480, 640), bg=(245, 245, 245)) -> np.ndarray:
+def garment_image(
+    color=(198, 40, 40), size=(480, 640), bg=(245, 245, 245)
+) -> np.ndarray:
     """A crude T-shirt silhouette on a plain background."""
     w, h = size
     arr = np.zeros((h, w, 3), np.uint8)

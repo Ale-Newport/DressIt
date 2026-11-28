@@ -19,6 +19,7 @@ import { RETAILERS, retailerForHost } from '../retail/registry.ts';
 import { inferSubcategory } from '../retail/categorize.ts';
 import { parsePrice } from '../retail/extract.ts';
 import { loadImageBytes } from '../images/service.ts';
+import { dismissForDetection, linkDetectionToGarment, summariesForDetections } from '../catalog-photo/service.ts';
 
 type Field<T> = { value: T; confidence: number; alternatives?: Array<{ value: T; confidence: number }> };
 interface Predicted {
@@ -30,6 +31,21 @@ interface Predicted {
   styles?: Field<string[]>;
   seasons?: Field<string[]>;
   fit?: Field<string>;
+  vlm?: { name: string; nameEs: string; description: string; visible: 'whole' | 'partial'; category?: string };
+}
+
+/**
+ * The garment's name: the user's, or the vision-language model's shop-style name ("Sudadera con
+ * capucha roja", capitalised). Not the model's when the user corrected the type: it would name the
+ * type they just corrected (a "Bufanda de cuadros" saved as a skirt).
+ */
+export function acceptedName(p: Predicted, overrides: GarmentWriteDto): string | undefined {
+  const proposed = p.vlm?.nameEs?.trim();
+  const retyped = !!overrides.subcategory && overrides.subcategory !== p.subcategory?.value;
+  const own = overrides.name?.trim();
+  if (own && !(retyped && proposed && own.toLowerCase() === proposed.toLowerCase())) return own;
+  if (!proposed || retyped) return undefined;
+  return (proposed.charAt(0).toUpperCase() + proposed.slice(1)).slice(0, 80);
 }
 
 export async function createPhotoImport(ctx: AppContext, trx: Tx, userId: string, body: PhotoImportRequest): Promise<string> {
@@ -48,7 +64,13 @@ export async function createPhotoImport(ctx: AppContext, trx: Tx, userId: string
   return job.id;
 }
 
-function detectionDto(ctx: AppContext, userId: string, d: Selectable<ImportDetections>, cutout: { id: string; width: number | null; height: number | null } | undefined): DetectionDto {
+function detectionDto(
+  ctx: AppContext,
+  userId: string,
+  d: Selectable<ImportDetections>,
+  cutout: { id: string; width: number | null; height: number | null } | undefined,
+  catalogPhoto: DetectionDto['catalogPhoto'] = null,
+): DetectionDto {
   return {
     id: d.id,
     imageId: d.image_id,
@@ -59,6 +81,7 @@ function detectionDto(ctx: AppContext, userId: string, d: Selectable<ImportDetec
     predicted: d.predicted as DetectionDto['predicted'],
     duplicate: (d.duplicate as DetectionDto['duplicate']) ?? null,
     warnings: d.warnings,
+    catalogPhoto,
   };
 }
 
@@ -67,6 +90,7 @@ export async function jobDto(ctx: AppContext, trx: Tx, userId: string, job: Sele
   const cutoutIds = dets.map((d) => d.cutout_image_id).filter((x): x is string => !!x);
   const cutouts = cutoutIds.length ? await trx.selectFrom('garment_images').select(['id', 'width', 'height']).where('id', 'in', cutoutIds).execute() : [];
   const byId = new Map(cutouts.map((c) => [c.id, c]));
+  const catalog = await summariesForDetections(ctx, trx, userId, dets.map((d) => d.id));
   return {
     id: job.id,
     kind: job.kind as ImportJobDto['kind'],
@@ -74,7 +98,7 @@ export async function jobDto(ctx: AppContext, trx: Tx, userId: string, job: Sele
     progress: job.total ? Math.round((job.processed / job.total) * 100) / 100 : 0,
     total: job.total,
     processed: job.processed,
-    detections: dets.map((d) => detectionDto(ctx, userId, d, d.cutout_image_id ? byId.get(d.cutout_image_id) : undefined)),
+    detections: dets.map((d) => detectionDto(ctx, userId, d, d.cutout_image_id ? byId.get(d.cutout_image_id) : undefined, catalog.get(d.id) ?? null)),
     error: job.error,
     createdAt: job.created_at.toISOString(),
     updatedAt: job.updated_at.toISOString(),
@@ -116,6 +140,7 @@ export async function acceptDetection(ctx: AppContext, trx: Tx, userId: string, 
     userId,
     {
       ...overrides,
+      name: acceptedName(p, overrides),
       subcategory,
       colors: overrides.colors ?? p.colors?.map((c) => ({ hex: c.hex, share: c.share })),
       pattern: overrides.pattern ?? p.pattern?.value ?? null,
@@ -139,6 +164,8 @@ export async function acceptDetection(ctx: AppContext, trx: Tx, userId: string, 
       .execute();
   }
   await trx.updateTable('import_detections').set({ state: 'accepted', garment_id: garmentId }).where('id', '=', det.id).execute();
+  // The catalogue photo prepared during the review follows the garment (and a choice made there applies).
+  await linkDetectionToGarment(ctx, trx, userId, det.id, garmentId);
   await refreshJobStatus(trx, jobId);
   businessEvents.inc({ event: 'garment_added', outcome: garmentSource });
   return garmentId;
@@ -147,6 +174,7 @@ export async function acceptDetection(ctx: AppContext, trx: Tx, userId: string, 
 export async function rejectDetection(trx: Tx, jobId: string, detectionId: string) {
   const r = await trx.updateTable('import_detections').set({ state: 'rejected' }).where('id', '=', detectionId).where('job_id', '=', jobId).where('state', '=', 'pending').returning('id').executeTakeFirst();
   if (!r) throw notFound('Detección pendiente');
+  await dismissForDetection(trx, detectionId);
   await refreshJobStatus(trx, jobId);
 }
 

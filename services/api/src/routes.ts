@@ -18,6 +18,9 @@ import * as trips from './modules/trips/service.ts';
 import * as catalog from './modules/catalog/service.ts';
 import * as shopping from './modules/shopping/service.ts';
 import * as assistant from './modules/assistant/service.ts';
+import * as imagegen from './modules/imagegen/service.ts';
+import * as recut from './modules/images/recut.ts';
+import * as catalogPhoto from './modules/catalog-photo/service.ts';
 import { RETAILERS } from './modules/retail/registry.ts';
 
 // ---------------------------------------------------------------------------
@@ -191,7 +194,14 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
   app.put(
     '/v1/me/consents/:kind',
     authed,
-    user((trx, req) => profile.setConsent(trx, req.userId, (req.params as { kind: string }).kind as never, parse(z.object({ granted: z.boolean() }), req.body).granted)),
+    user(async (trx, req) => {
+      const kind = (req.params as { kind: string }).kind;
+      const { granted } = parse(z.object({ granted: z.boolean() }), req.body);
+      const res = await profile.setConsent(trx, req.userId, kind as never, granted);
+      // Withdrawing the avatar consent deletes the user's photos and every render, now.
+      if (kind === 'avatar' && !granted) await imagegen.deleteAvatar(ctx, trx);
+      return res;
+    }),
   );
   app.get('/v1/me/style-profile', authed, user((trx) => profile.styleProfile(trx)));
   app.get(
@@ -395,6 +405,80 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
     }),
   );
 
+
+  // --- Catalogue photo: official store photo (reverse image search) or AI packshot ---------
+  app.get('/v1/catalog-photos/status', authed, async () => catalogPhoto.catalogPhotoStatus(ctx));
+  app.get('/v1/catalog-photos/:id', authed, user((trx, req) => catalogPhoto.getJob(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
+  app.post(
+    '/v1/catalog-photos/:id/choose',
+    authed,
+    user((trx, req) =>
+      catalogPhoto.choose(
+        ctx,
+        trx,
+        req.userId,
+        parse(uuid, (req.params as { id: string }).id),
+        parse(z.object({ choice: z.enum(['official', 'generated', 'original']), matchId: z.string().max(64).optional(), acceptWarnings: z.boolean().optional() }), req.body),
+      ),
+    ),
+  );
+  app.post('/v1/garments/:id/catalog-photo', { ...authed, config: { rateLimit: { max: 30, timeWindow: '1 hour' } } }, async (req, reply) => {
+    const garmentId = parse(uuid, (req.params as { id: string }).id);
+    const body = parse(z.object({ mode: z.enum(['auto', 'search', 'generate']).optional(), force: z.boolean().optional() }), req.body ?? {});
+    const { id, created } = await withUser(ctx.db, req.userId, (trx) => catalogPhoto.createForGarment(ctx, trx, req.userId, garmentId, body));
+    if (created) await ctx.queue.enqueueCatalogPhoto({ catalogPhotoId: id, userId: req.userId }); // after commit
+    reply.status(202);
+    return withUser(ctx.db, req.userId, (trx) => catalogPhoto.getJob(ctx, trx, req.userId, id));
+  });
+  app.get('/v1/garments/:id/catalog-photo', authed, user((trx, req) => catalogPhoto.latestForGarment(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
+
+  // --- Generated images: avatar ------------------------------------------------------
+  app.get('/v1/generation/status', authed, async () => imagegen.generationStatus(ctx));
+  app.get('/v1/generations/:id', authed, user((trx, req) => imagegen.getJob(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
+  app.put(
+    '/v1/garments/:id/primary-image',
+    authed,
+    user(async (trx, req, reply) => {
+      await imagegen.setPrimaryImage(trx, parse(uuid, (req.params as { id: string }).id), parse(z.object({ imageId: uuid }), req.body).imageId);
+      reply.status(204);
+    }),
+  );
+  app.post('/v1/outfits/:id/avatar', { ...authed, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
+    const outfitId = parse(uuid, (req.params as { id: string }).id);
+    const opts = parse(z.object({ baseId: uuid.optional(), method: z.enum(['fast', 'sequential', 'joint']).optional() }), req.body ?? {});
+    const id = await withUser(ctx.db, req.userId, (trx) => imagegen.createAvatarJob(ctx, trx, req.userId, outfitId, opts));
+    await ctx.queue.enqueueGeneration({ generationId: id, userId: req.userId });
+    reply.status(202);
+    return withUser(ctx.db, req.userId, (trx) => imagegen.getJob(ctx, trx, req.userId, id));
+  });
+  app.get('/v1/outfits/:id/avatar', authed, user((trx, req) => imagegen.listJobs(ctx, trx, req.userId, { outfitId: parse(uuid, (req.params as { id: string }).id) })));
+  app.post('/v1/me/avatar/bases', { ...authed, config: { rateLimit: { max: 30, timeWindow: '1 hour' } } }, async (req, reply) => {
+    const body = parse(z.object({ view: z.enum(['frontal', 'tres_cuartos', 'perfil']), background: z.enum(['estudio_gris', 'blanco', 'beige', 'original']) }), req.body);
+    const { baseId, jobId } = await withUser(ctx.db, req.userId, (trx) => imagegen.createAvatarBase(ctx, trx, req.userId, body.view, body.background));
+    if (jobId) await ctx.queue.enqueueGeneration({ generationId: jobId, userId: req.userId }); // after commit
+    reply.status(jobId ? 202 : 201);
+    return withUser(ctx.db, req.userId, async (trx) => {
+      const profile = await imagegen.getAvatar(ctx, trx, req.userId);
+      return { base: profile.bases.find((b) => b.id === baseId)!, job: jobId ? await imagegen.getJob(ctx, trx, req.userId, jobId) : null };
+    });
+  });
+  app.get('/v1/me/avatar', authed, user((trx, req) => imagegen.getAvatar(ctx, trx, req.userId)));
+  app.put(
+    '/v1/me/avatar',
+    authed,
+    user((trx, req) =>
+      imagegen.setAvatar(ctx, trx, req.userId, parse(z.object({ faceImageId: uuid.nullish(), bodyImageId: uuid.nullish(), attestedSelf: z.boolean(), attestedAdult: z.boolean() }), req.body)),
+    ),
+  );
+  app.delete(
+    '/v1/me/avatar',
+    authed,
+    user(async (trx, _req, reply) => {
+      await imagegen.deleteAvatar(ctx, trx);
+      reply.status(204);
+    }),
+  );
+
   // --- Uploads & images ----------------------------------------------------------
   app.post(
     '/v1/uploads',
@@ -404,7 +488,11 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
       if (!file) throw badRequest('Falta el archivo (campo «file»).');
       const buf = await file.toBuffer();
       const kindField = (file.fields.kind as { value?: string } | undefined)?.value ?? 'garment_photo';
-      const kind = parse(z.enum(['garment_photo', 'receipt', 'label', 'screenshot', 'inspiration', 'visual_search']), kindField);
+      const kind = parse(z.enum(['garment_photo', 'receipt', 'label', 'screenshot', 'inspiration', 'visual_search', 'self_face', 'self_body']), kindField);
+      if (kind === 'self_face' || kind === 'self_body') {
+        const c = await trx.selectFrom('consents').select('granted').where('kind', '=', 'avatar').orderBy('created_at', 'desc').limit(1).executeTakeFirst();
+        if (!c?.granted) throw badRequest('Activa el consentimiento «Tu avatar» antes de subir tus fotos.');
+      }
       const stored = await images.storeUpload(ctx, trx, req.userId, buf, kind);
       reply.status(201);
       return { imageId: stored.id, duplicateOfImageId: stored.duplicateOfImageId };
@@ -462,6 +550,29 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
       const id = await imports.acceptDetection(ctx, trx, req.userId, parse(uuid, p.jobId), parse(uuid, p.detectionId), body.overrides ?? {});
       return wardrobe.getGarmentDetail(trx, ctx.signer, id);
     }),
+  );
+  const recutBody = z.object({ points: z.array(z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.union([z.literal(0), z.literal(1)])])).min(1).max(20) });
+  app.post(
+    '/v1/imports/:jobId/detections/:detectionId/recut',
+    { ...authed, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
+    user((trx, req) => {
+      const p = req.params as { jobId: string; detectionId: string };
+      return recut.recutDetection(ctx, trx, req.userId, parse(uuid, p.jobId), parse(uuid, p.detectionId), parse(recutBody, req.body).points as recut.RecutPoint[]);
+    }),
+  );
+  app.get(
+    '/v1/imports/:jobId/detections/:detectionId/recut',
+    authed,
+    user((trx, req) => {
+      const p = req.params as { jobId: string; detectionId: string };
+      return recut.detectionRecutSource(ctx, trx, req.userId, parse(uuid, p.jobId), parse(uuid, p.detectionId));
+    }),
+  );
+  app.get('/v1/garments/:id/recut', authed, user((trx, req) => recut.garmentRecutSource(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id))));
+  app.post(
+    '/v1/garments/:id/recut',
+    { ...authed, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
+    user((trx, req) => recut.recutGarment(ctx, trx, req.userId, parse(uuid, (req.params as { id: string }).id), parse(recutBody, req.body).points as recut.RecutPoint[])),
   );
   app.post(
     '/v1/imports/:jobId/detections/:detectionId/reject',

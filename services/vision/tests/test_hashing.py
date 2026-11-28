@@ -17,7 +17,10 @@ def _scene(seed: int) -> Image.Image:
     d = ImageDraw.Draw(img)
     for _ in range(12):
         x0, y0 = rng.integers(0, 600), rng.integers(0, 440)
-        d.ellipse([x0, y0, x0 + rng.integers(40, 200), y0 + rng.integers(40, 200)], fill=tuple(int(v) for v in rng.integers(0, 255, 3)))
+        d.ellipse(
+            [x0, y0, x0 + rng.integers(40, 200), y0 + rng.integers(40, 200)],
+            fill=tuple(int(v) for v in rng.integers(0, 255, 3)),
+        )
     return img.filter(ImageFilter.GaussianBlur(2))
 
 
@@ -52,6 +55,9 @@ def test_phash_different_images_are_far():
 
 
 def test_sha256_and_hamming():
-    assert sha256_hex(b"abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    assert (
+        sha256_hex(b"abc")
+        == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
     assert hamming_distance("ffffffffffffffff", "0000000000000000") == 64
     assert hamming_distance("8fa2206d3dd333c3", "8fa2206d3dd333c3") == 0

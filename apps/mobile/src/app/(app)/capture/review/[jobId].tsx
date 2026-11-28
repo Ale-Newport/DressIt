@@ -160,6 +160,7 @@ export default function ReviewScreen() {
           onEdit={() => setEditing(d)}
           accepting={busyId?.id === d.id && busyId.action === 'accept'}
           rejecting={busyId?.id === d.id && busyId.action === 'reject'}
+          jobId={data.id}
         />
       ))}
 

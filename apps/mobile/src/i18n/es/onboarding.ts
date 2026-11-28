@@ -36,6 +36,10 @@ export default {
       title: 'Tu privacidad',
       body: 'Tú decides qué permites. Puedes cambiarlo cuando quieras en Perfil.',
     },
+    avatar: {
+      title: 'Tu avatar (opcional)',
+      body: 'Una foto de tu cara y otra de cuerpo entero para verte con tus conjuntos de cada día. Puedes saltar este paso y hacerlo más tarde en Perfil.',
+    },
     inspiration: {
       title: 'Inspiración (opcional)',
       body: 'Sube fotos de looks que te gusten. Nos ayudan a entender tu estilo.',

@@ -31,6 +31,9 @@ const MAX_SIDE: Record<UploadKind, number> = {
   screenshot: 2400,
   receipt: 2400,
   label: 2400,
+  // The avatar model needs detail in the face and the whole body.
+  self_face: 1536,
+  self_body: 2048,
 };
 
 /**

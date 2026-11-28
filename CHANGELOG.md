@@ -8,6 +8,47 @@ All notable changes to DressIt are recorded here. The format follows
 
 ### Added
 
+- **Catalogue photo** (`docs/foto-catalogo.md`), replacing the studio photo. A home photo
+  (wrinkled T-shirt on a bed, folded jeans, a worn jacket…) becomes a professional product photo,
+  not just a cut-out:
+  1. **Official photo first.** Reverse image search with the garment crop and with the whole photo,
+     plus brand, label text and reference codes read by OCR:
+     - Google Lens through SerpApi (direct upload, Spain/Spanish);
+     - Google Cloud Vision Web Detection;
+     - Lykdat;
+     - FashionSigLIP over the authorised catalogues.
+
+     The top candidates are downloaded (SSRF-safe), their store pages read when allowed, and each photo
+     compared with the user's garment. A match is **exact** only with a close photo AND independent
+     evidence (brand or reference on the label, the same image online, or two engines agreeing).
+     Otherwise it is a **possible** match, shown with its doubts. Licensed photos are copied; photos
+     found on the web are shown by reference from the store (never copied) with attribution
+     (`OFFICIAL_PHOTO_WEB_IMAGES`).
+  2. **Otherwise an AI packshot** (FASHN Agent Images → fal.ai Qwen-Image-Edit-2511 → our ComfyUI with
+     Qwen-Image-Edit-2511, in that order of preference). It is generated from the user's photo on a new
+     4:5 canvas with the owner's base prompt plus per-category instructions: sleeves symmetric, legs
+     extended, collars and lapels in place, ghost mannequin for coats and dresses, product shots for
+     shoes and bags.
+  3. **Automatic check** (vision `POST /v1/catalog/check`), independent of how the garment is laid out:
+     - presentation: plain background, whole garment, mirror symmetry, no tilt, one item, zero-shot
+       "neat packshot" vs crumpled/folded/worn;
+     - fidelity: type, FashionSigLIP, colour palette EMD after aligning lightness, plain vs patterned,
+       LBP texture, label text.
+
+     Failures are retried with corrections (up to 3 attempts, the last one with the fallback model),
+     then the user is asked, with the reasons. A garment cut by the frame asks for another photo first.
+  4. The app shows **original / official / generated** in the review queue and on the garment, and the
+     user chooses; their photos are always kept.
+
+  Asynchronous queue `catalog-photo`, per-photo response cache (30 days), per-user daily limits, a
+  monthly budget across paid providers and per-job cost. New consent «Buscar mis prendas en Internet».
+  Evidence with 8 real conditions and the app in the iOS Simulator in
+  `docs/evidence/foto-catalogo-2026-11-24.md`. Fixed during the evaluation:
+  - a packshot dressed as an outfit (an invented pair of trousers) is now rejected;
+  - sunlit glare no longer counts as a lost colour;
+  - the generator sees the whole photo when it holds one garment;
+  - giving up on a slow ComfyUI prompt no longer interrupts other users' work.
+
 - **Apple Intelligence on the iPhone** (local native module `dressit-intelligence`, all on device):
   the assistant's request is read by Apple's on-device model and sent as a grounded hint
   (`deviceIntent`); a wardrobe summary in Statistics; "Describe with Apple Intelligence" on a
@@ -21,6 +62,37 @@ All notable changes to DressIt are recorded here. The format follows
   (`pending_credentials`, `configured`, `operational`, `error`, `unsupported`). New stores with
   verified programmes (Lefties, Bimba y Lola, JD Sports, Foot Locker, Sprinter…), an updated matrix
   in `docs/comercios.md` and a step-by-step guide for the owner in `docs/conectar-tiendas.md`.
+
+- ~~Studio photos with generative AI~~ (from the cutout, same silhouette): replaced by the catalogue
+  photo above.
+- **Your avatar**: an optional onboarding step and *Perfil → Tu avatar* take a face and a
+  full-body photo (own consent, "they are mine" and "I am 18+" confirmations); outfits can then
+  be rendered on the user, shown next to the real outfit. Withdrawing the consent deletes the
+  photos and every render. Every generated image is labelled in the app and in its EXIF
+  (EU AI Act art. 50). Setup, models, measurements and limits in `docs/generacion-imagenes.md`.
+- **Multi-garment virtual try-on** (`services/tryon`, FASHN VTON v1.5, Apache-2.0): the user's
+  saved avatar is dressed one garment at a time — bottom or dress, then base, mid and outer layers —
+  and shoes plus one accessory are added in a last Qwen-Image-Edit pass. The first garment of each
+  body region replaces what the photo shows there (clothing mask from Sapiens2 body parsing, not
+  FASHN's non-commercial parser); later layers are dressed over it. Every step is cached, so
+  changing one garment only redoes the steps after it. Progress ("Paso 2 de 4 · Probando: …") is
+  shown in the app, and the one-pass method stays available to choose.
+- **Persistent avatar images**: the user's own full-body photo cut out on a studio background
+  (grey, white, beige or their own), plus optional generated three-quarter and side views
+  (Multiple-Angles LoRA), saved once and reused by every try-on; a new body photo replaces them.
+- **Fidelity of worn garments**: try-on results are parsed (Sapiens2) and each visible garment is
+  checked against the real one (FashionSigLIP similarity and CIEDE2000); renders that changed a
+  garment are discarded with the reason in Spanish.
+- **Detail fidelity for studio photos** (`POST /v1/compare` in the vision service): shape IoU,
+  colour per zone on a 12×12 grid and texture SSIM after alignment. It now rejects a studio photo
+  that changed the buttons, which the global embedding let through (`docs/evidence/catalogo-2026-11-24.md`).
+- **Manual cutout correction**: "Corregir recorte" on a garment or on a detection in review; the
+  user taps "es prenda" / "no es prenda" points on the original photo and SAM 2.1 re-segments it;
+  "no es prenda" points also remove thin strands (hair, fingers) near them. Previous cutouts are
+  kept in the garment's gallery.
+- ~~Official store photo from connected catalogues~~: now part of the catalogue photo search.
+- **Upright correction** of tops, bottoms, dresses and coats photographed at an angle (symmetry
+  search, ±25°).
 
 ### Changed
 

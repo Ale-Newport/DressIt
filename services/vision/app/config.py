@@ -82,10 +82,14 @@ class Thresholds:
     @classmethod
     def from_env(cls) -> Thresholds:
         defaults = cls()
-        return cls(**{
-            name: _env_float(f"VISION_THRESHOLD_{name.upper()}", getattr(defaults, name))
-            for name in defaults.__dataclass_fields__
-        })
+        return cls(
+            **{
+                name: _env_float(
+                    f"VISION_THRESHOLD_{name.upper()}", getattr(defaults, name)
+                )
+                for name in defaults.__dataclass_fields__
+            }
+        )
 
 
 @dataclass(frozen=True)
@@ -101,6 +105,9 @@ class Settings:
     cutout_max_side: int = 1024
     cutout_padding: float = 0.04
     segmenter: str = "isnet-general-use"
+    # Cutout of a generated studio photo (one item on plain light grey): BiRefNet lite (MIT) keeps
+    # white and cream garments that IS-Net drops against a light background.
+    studio_matte: str = "birefnet-general-lite"
     embedding_model: str = "Marqo/marqo-fashionSigLIP"
     detector_model: str = "IDEA-Research/grounding-dino-tiny"
     # Softmax scale applied to cosine similarities (1 / temperature), calibrated on eval/.
@@ -111,9 +118,15 @@ class Settings:
     # SAM-segmented and every region FashionSigLIP takes for a support is removed.
     remove_supports: bool = True
     support_min_prob: float = 0.5  # P(support) of a region to remove it
-    support_min_prob_head_form: float = 0.25  # hat photos: a head form at the bottom of the object
-    support_max_area: float = 0.6  # never remove a region larger than this fraction of the foreground
-    proposal_short_side: int = 480  # detector input (shortest side) for proposals; multi keeps 800
+    support_min_prob_head_form: float = (
+        0.25  # hat photos: a head form at the bottom of the object
+    )
+    support_max_area: float = (
+        0.6  # never remove a region larger than this fraction of the foreground
+    )
+    proposal_short_side: int = (
+        480  # detector input (shortest side) for proposals; multi keeps 800
+    )
     max_proposals: int = 10
     # Thin structures crossing the frame border (clothesline, rail) removed from the rembg mask;
     # width threshold = 2 × this fraction of the long side (+1 px).
@@ -122,7 +135,10 @@ class Settings:
     layer_single: bool = True
     # Foreground colour estimation at semi-transparent edges (pymatting, MIT): no background halo.
     decontaminate_edges: bool = True
-    onnx_coreml: bool = True  # use onnxruntime's CoreML EP for rembg when available (macOS)
+    upright_correction: bool = True
+    onnx_coreml: bool = (
+        True  # use onnxruntime's CoreML EP for rembg when available (macOS)
+    )
     ocr_languages: tuple[str, ...] = ("es", "en")
     max_concurrency: int = 2
     thresholds: Thresholds = field(default_factory=Thresholds)
@@ -132,7 +148,9 @@ class Settings:
         d = cls()
         backend = _env_str("VISION_BACKEND", d.backend).lower()
         if backend not in {"torch", "stub"}:
-            raise ValueError(f"VISION_BACKEND must be 'torch' or 'stub', got {backend!r}")
+            raise ValueError(
+                f"VISION_BACKEND must be 'torch' or 'stub', got {backend!r}"
+            )
         return cls(
             backend=backend,
             device=_env_str("VISION_DEVICE", d.device).lower(),
@@ -143,24 +161,42 @@ class Settings:
             working_max_side=_env_int("VISION_WORKING_MAX_SIDE", d.working_max_side),
             cutout_max_side=_env_int("VISION_CUTOUT_MAX_SIDE", d.cutout_max_side),
             segmenter=_env_str("VISION_SEGMENTER", d.segmenter),
+            studio_matte=_env_str("VISION_STUDIO_MATTE", d.studio_matte),
             embedding_model=_env_str("VISION_EMBEDDING_MODEL", d.embedding_model),
             detector_model=_env_str("VISION_DETECTOR_MODEL", d.detector_model),
             logit_scale=_env_float("VISION_LOGIT_SCALE", d.logit_scale),
             normalize_cutout=_env_bool("VISION_NORMALIZE_CUTOUT", d.normalize_cutout),
             remove_supports=_env_bool("VISION_REMOVE_SUPPORTS", d.remove_supports),
             support_min_prob=_env_float("VISION_SUPPORT_MIN_PROB", d.support_min_prob),
-            support_min_prob_head_form=_env_float("VISION_SUPPORT_MIN_PROB_HEAD_FORM", d.support_min_prob_head_form),
+            support_min_prob_head_form=_env_float(
+                "VISION_SUPPORT_MIN_PROB_HEAD_FORM", d.support_min_prob_head_form
+            ),
             support_max_area=_env_float("VISION_SUPPORT_MAX_AREA", d.support_max_area),
-            proposal_short_side=_env_int("VISION_PROPOSAL_SHORT_SIDE", d.proposal_short_side),
+            proposal_short_side=_env_int(
+                "VISION_PROPOSAL_SHORT_SIDE", d.proposal_short_side
+            ),
             max_proposals=_env_int("VISION_MAX_PROPOSALS", d.max_proposals),
-            thin_border_radius=_env_float("VISION_THIN_BORDER_RADIUS", d.thin_border_radius),
+            thin_border_radius=_env_float(
+                "VISION_THIN_BORDER_RADIUS", d.thin_border_radius
+            ),
             layer_single=_env_bool("VISION_LAYER_SINGLE", d.layer_single),
-            decontaminate_edges=_env_bool("VISION_DECONTAMINATE_EDGES", d.decontaminate_edges),
+            decontaminate_edges=_env_bool(
+                "VISION_DECONTAMINATE_EDGES", d.decontaminate_edges
+            ),
+            upright_correction=_env_bool(
+                "VISION_UPRIGHT_CORRECTION", d.upright_correction
+            ),
             onnx_coreml=_env_bool("VISION_ONNX_COREML", d.onnx_coreml),
             ocr_languages=tuple(
-                lang.strip() for lang in _env_str("VISION_OCR_LANGS", ",".join(d.ocr_languages)).split(",") if lang.strip()
+                lang.strip()
+                for lang in _env_str(
+                    "VISION_OCR_LANGS", ",".join(d.ocr_languages)
+                ).split(",")
+                if lang.strip()
             ),
-            max_concurrency=max(1, _env_int("VISION_MAX_CONCURRENCY", d.max_concurrency)),
+            max_concurrency=max(
+                1, _env_int("VISION_MAX_CONCURRENCY", d.max_concurrency)
+            ),
             thresholds=Thresholds.from_env(),
         )
 

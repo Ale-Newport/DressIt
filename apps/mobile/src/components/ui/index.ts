@@ -3,6 +3,7 @@ export * from './BarChart';
 export * from './Button';
 export * from './Card';
 export * from './Chip';
+export * from './CutoutImage';
 export * from './ConfirmDialog';
 export * from './GarmentSilhouette';
 export * from './GarmentTile';

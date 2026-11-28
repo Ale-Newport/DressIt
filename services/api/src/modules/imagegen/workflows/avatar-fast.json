@@ -1,0 +1,326 @@
+{
+  "1": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-Q8_0.gguf"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoaderGGUF",
+    "inputs": {
+      "clip_name": "Qwen3-4B-Q8_0.gguf",
+      "type": "flux2"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Photorealistic full-body photo of the person in image 1 wearing exactly the clothes shown in image 2 ({{DESCRIPTION}}), replacing the clothes they are wearing. Dress them in every garment of image 2, including any that looks like what they are wearing now. Keep the person's identity, face (see image 3), hair, skin tone, body shape and proportions from image 1. Keep every garment exactly as in image 2: same colours, patterns, prints, logos and shapes. Standing, relaxed natural pose, fully clothed, plain light grey studio background, soft natural lighting, head to toe in frame. Do not add rips, distressing, prints, jewellery or accessories that are not in image 2.",
+      "clip": [
+        "2",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "4",
+        0
+      ]
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "{{BODY_IMAGE}}"
+    }
+  },
+  "11": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.0,
+      "resolution_steps": 1
+    }
+  },
+  "12": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "11",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "13": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "4",
+        0
+      ],
+      "latent": [
+        "12",
+        0
+      ]
+    }
+  },
+  "14": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "5",
+        0
+      ],
+      "latent": [
+        "12",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "{{OUTFIT_IMAGE}}"
+    }
+  },
+  "16": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "15",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.0,
+      "resolution_steps": 1
+    }
+  },
+  "17": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "16",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "18": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "13",
+        0
+      ],
+      "latent": [
+        "17",
+        0
+      ]
+    }
+  },
+  "19": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "14",
+        0
+      ],
+      "latent": [
+        "17",
+        0
+      ]
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "{{FACE_IMAGE}}"
+    }
+  },
+  "21": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "20",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.0,
+      "resolution_steps": 1
+    }
+  },
+  "22": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "21",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "23": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "18",
+        0
+      ],
+      "latent": [
+        "22",
+        0
+      ]
+    }
+  },
+  "24": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "19",
+        0
+      ],
+      "latent": [
+        "22",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "11",
+        0
+      ]
+    }
+  },
+  "41": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": [
+        "40",
+        0
+      ],
+      "height": [
+        "40",
+        1
+      ],
+      "batch_size": 1
+    }
+  },
+  "42": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "40",
+        0
+      ],
+      "height": [
+        "40",
+        1
+      ]
+    }
+  },
+  "43": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "23",
+        0
+      ],
+      "negative": [
+        "24",
+        0
+      ],
+      "cfg": 1.0
+    }
+  },
+  "44": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": "{{SEED}}"
+    }
+  },
+  "45": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "46": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "44",
+        0
+      ],
+      "guider": [
+        "43",
+        0
+      ],
+      "sampler": [
+        "45",
+        0
+      ],
+      "sigmas": [
+        "42",
+        0
+      ],
+      "latent_image": [
+        "41",
+        0
+      ]
+    }
+  },
+  "47": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "46",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "48": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "47",
+        0
+      ],
+      "filename_prefix": "dressit_avatar_fast"
+    }
+  }
+}

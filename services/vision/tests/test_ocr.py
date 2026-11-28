@@ -10,7 +10,10 @@ def test_normalize_amounts():
     assert normalize_amounts("CAMISA LINO 29 , 95 €") == "CAMISA LINO 29,95 €"
     assert normalize_amounts("JERSEY 25, 99 €") == "JERSEY 25,99 €"
     assert normalize_amounts("TOTAL 95 .89") == "TOTAL 95.89"
-    assert normalize_amounts("C/ Gran Vía 1, 28013 Madrid") == "C/ Gran Vía 1, 28013 Madrid"
+    assert (
+        normalize_amounts("C/ Gran Vía 1, 28013 Madrid")
+        == "C/ Gran Vía 1, 28013 Madrid"
+    )
 
 
 def test_group_lines_reading_order():
