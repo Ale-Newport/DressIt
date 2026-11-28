@@ -198,7 +198,10 @@ export function parseCloudVisionWeb(body: unknown, query: 'crop' | 'full'): Sear
     bestGuessLabels?: Array<{ label?: string }>;
   };
   const out: WebCandidate[] = [];
-  const stripTags = (s: string | undefined) => (s ? s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').trim() : null);
+  // A page title as plain text: its tags out, then any angle bracket left over, so a tag split by another
+  // ("<scr<b>ipt>") or left unclosed cannot leave "<script" behind. "&amp;" is decoded last: "&amp;lt;"
+  // stays the entity "&lt;", never a bracket.
+  const stripTags = (s: string | undefined) => (s ? s.replace(/<[^>]*>/g, '').replace(/[<>]/g, '').replace(/&amp;/g, '&').trim() : null);
   for (const p of wd.pagesWithMatchingImages ?? []) {
     const full = p.fullMatchingImages?.[0]?.url;
     out.push({
