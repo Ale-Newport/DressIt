@@ -384,6 +384,12 @@ export interface DetectionDto {
     warmth?: PredictedField<number>;
     fit?: PredictedField<Fit>;
     brand?: PredictedField<string>;
+    /**
+     * The garment as a vision-language model saw it in the whole photo (local MLX server): a shop-style
+     * name ("Red Hooded Sweatshirt" / "Sudadera con capucha roja"), a description of the complete
+     * item (hidden parts included) and whether it was only partly visible (worn, covered, cut).
+     */
+    vlm?: { name: string; nameEs: string; description: string; visible: 'whole' | 'partial'; category?: string };
   };
   duplicate: { garmentId: string; score: number; kind: 'exact_photo' | 'near_photo' | 'similar_garment' } | null;
   warnings: string[];
@@ -1068,8 +1074,11 @@ export interface AvatarBaseResponse {
 export interface AvatarRenderRequest {
   /** Avatar image to dress (default: the frontal base on a grey studio background, created if missing). */
   baseId?: string;
-  /** `sequential` (dedicated try-on model, one garment at a time) or `joint` (one generative pass). */
-  method?: 'sequential' | 'joint';
+  /**
+   * `fast` (one pass of FLUX.2 klein with the person's photo and each garment's photo, ~20 s),
+   * `sequential` (dedicated try-on model, one garment at a time) or `joint` (one generative pass).
+   */
+  method?: 'fast' | 'sequential' | 'joint';
 }
 
 /** `PUT /v1/me/avatar`: images from `POST /v1/uploads` (kinds `self_face` / `self_body`). */
@@ -1113,7 +1122,7 @@ export interface GenerationJobDto {
   /** Spanish, when failed or rejected. */
   error: string | null;
   /** Avatar renders: how it was generated. */
-  method?: 'sequential' | 'joint' | null;
+  method?: 'fast' | 'sequential' | 'joint' | null;
   /** While running: current step out of total, with a Spanish label; `reused` = steps taken from the cache. */
   progress?: { step: number; total: number; label: string; reused: number } | null;
   createdAt: string;
@@ -1127,6 +1136,8 @@ export interface GenerationServiceStatusDto {
   avatar: boolean;
   /** Dedicated try-on service (sequential method) reachable. */
   tryon?: boolean;
+  /** Fast one-pass try-on (FLUX.2 klein in the local MLX server) reachable. */
+  fast?: boolean;
   /** Spanish explanation when unavailable. */
   reason: string | null;
   models: { studio: string | null; avatar: string | null };
@@ -1138,7 +1149,7 @@ export interface GenerationServiceStatusDto {
 
 export type CatalogPhotoStatus = 'queued' | 'searching' | 'generating' | 'ready' | 'needs_user' | 'failed' | 'confirmed' | 'dismissed';
 export type CatalogSearchProviderId = 'serpapi_lens' | 'cloud_vision' | 'lykdat' | 'catalog';
-export type CatalogGeneratorId = 'fashn' | 'fal' | 'comfy';
+export type CatalogGeneratorId = 'fashn' | 'fal' | 'comfy' | 'mlx';
 /** How a store photo may be used: licensed (copied, from an authorised feed), link_preview (shown by
  *  reference from the store, never copied, only to the owner) or reference_only (identifies the product). */
 export type OfficialPhotoUsage = 'licensed' | 'link_preview' | 'reference_only';

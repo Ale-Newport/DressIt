@@ -44,11 +44,18 @@ Evidencia: [evidence/foto-catalogo-2026-11-24.md](evidence/foto-catalogo-2026-11
  6 ¿información suficiente? (prenda no cortada por el encuadre) ── no ──▶ pide otra foto
                 │ sí                                                    (o «Generar de todos modos»)
                 ▼
-   packshot generativo: FASHN → fal.ai → ComfyUI (el primero configurado; los demás de reserva)
+   nombre, descripción de la prenda completa y rasgos que su foto debe conservar (Qwen3.5-35B-A3B
+   local, desde la importación; partes ocultas incluidas: una prenda vista en parte se reconstruye)
                 ▼
- 7 control automático (visión /v1/catalog/check): presentación + fidelidad
- 8 ¿falla? reintento con correcciones (hasta PACKSHOT_MAX_ATTEMPTS = 3; el último con el proveedor
-   de reserva) → si sigue fallando, se pide intervención del usuario con los motivos
+   foto de estudio desde la foto original: FASHN → fal.ai → MLX (el primero configurado; los demás
+   de reserva). En local, FLUX.2 klein 4B en MLX, 14-22 s
+                ▼
+ 7 control automático (visión /v1/catalog/check, kind=studio): recorte con BiRefNet, color igualado
+   a la prenda real, presentación + fidelidad; Qwen3.5 comprueba que sea la misma clase de prenda y
+   que conserve largo, mangas, capucha, cordones, estampado, encaje y cinta
+ 8 ¿falla? reintento con correcciones y con cómo debe ser la prenda (hasta PACKSHOT_MAX_ATTEMPTS = 3;
+   si klein sigue dibujando otra cosa, el último limpia el recorte real de la prenda) → si sigue
+   fallando, se pide intervención del usuario con los motivos
                 ▼
  9 la app muestra Original / Oficial / Generada (según corresponda)
 10 el usuario elige → se actualiza la foto principal de la prenda
@@ -131,20 +138,110 @@ una tienda sin acuerdo con ella es una zona gris. `OFFICIAL_PHOTO_WEB_IMAGES=non
 
 ## 3. Prioridad 2: foto de estudio con IA
 
+### Foto de estudio primero, recorte después (25/11/2026)
+
+Lo que hace Alta (según lo publicado; ver [research/competidores.md](research/competidores.md#cómo-convierte-alta-las-prendas-en-fotos-de-estudio-investigación-del-2026-11-25)),
+replicado sin coste. Es el flujo por defecto (`CATALOG_STUDIO_PROMPT=studio`). Medidas, controles
+ciegos y fallos que quedan: [evidence/foto-estudio-2026-11-25.md](evidence/foto-estudio-2026-11-25.md) y
+[evidence/foto-estudio-vlm-2026-11-25.md](evidence/foto-estudio-vlm-2026-11-25.md). En la
+verificación final, 30 de 50 prendas (18 fotos difíciles) fueron aptas a ciegas, y 30 de 45 sin
+contar las detecciones erróneas.
+
+1. **Detectar y describir cada prenda en la foto entera** (como Alta), al importar. Qwen3.5-35B-A3B
+   (`POST /v1/garments` del [servidor MLX](../services/imagegen/mlx/server.py); mezcla de expertos con
+   3 B parámetros activos, 4-15 s por foto) lista las prendas y complementos del sujeto principal, cada
+   uno como **un** artículo con su caja:
+   - un frac cuyo cuerpo verde y faldones negros el detector partía en dos es una sola prenda;
+   - un par de zapatos o calcetines es un artículo (si los lista por separado,
+     [`clean_garments`](../services/imagegen/mlx/garments.py) los une);
+   - de una sudadera puesta y vista casi solo por la capucha, la prenda entera;
+   - se ignoran personas del fondo, muebles, perchas, reflejos y objetos que no se llevan puestos.
+
+   De cada una da un nombre en inglés y otro en español («Sudadera con capucha roja», que la revisión
+   propone como nombre), la descripción de la prenda **completa** y sola (colores de cada parte, largo,
+   corte, mangas, cierres, forro, estampados; lo que la foto no enseña, como sería lo más probable;
+   nunca la persona ni cómo se lleva, porque el editor la dibujaba), si solo se ve en parte y **lo que su
+   foto de catálogo debe conservar**: largo, mangas, capucha, cordones, estampado o texto grande, letras,
+   encaje, cinta del sombrero, faldones, asa, el color de cada parte («body beige; sleeves blue») y si alguien la
+   lleva puesta. El modelo de 4 B que se usaba antes escribía a veces en español los campos en
+   inglés (klein dibujó un jersey para «Calcetines blancos»), no decía el largo y listaba perchas y
+   reflejos; si aun así llega un nombre en español, el servidor lo traduce. El servicio de visión
+   segmenta esas cajas con SAM 2.1 (`boxes` en `/v1/analyze`) en lugar
+   de usar Grounding DINO. El tipo sale del nombre cuando el vocabulario lo tiene
+   ([`subcategoryFromName`](../services/api/src/modules/catalog-photo/prompt.ts)): el clasificador
+   llamaba «bufanda» a una falda o a una mochila. Si el servidor MLX no está, se usa el detector de
+   siempre y la prenda se nombra luego, con un recuadro rojo (`POST /v1/describe`).
+2. **Nada se rechaza por verse en parte.** Una prenda cortada por el encuadre, pequeña, puesta o tapada
+   se reconstruye entera a partir de su descripción, como hace Alta, y el mensaje lo dice («Parte de la
+   prenda no se veía en tu foto: la hemos completado»). Solo se pide otra foto si no es ropa.
+3. **Foto de estudio desde la foto original**: la foto entera si solo tiene esa prenda; con varias, su
+   zona con un 20 % de contexto, porque así queda en el centro, que es lo que nombra el prompt
+   ([`buildStudioPrompt`](../services/api/src/modules/catalog-photo/prompt.ts)). El prompt lleva el
+   nombre y la descripción completa en lugar de los colores medidos. Fondo **gris muy claro**, porque
+   sobre blanco el recorte se come las prendas blancas. La presentación por tipo (flat lay, «fantasma»,
+   producto) sale del nombre ([`kindFromName`](../services/api/src/modules/catalog-photo/prompt.ts)).
+   Los bolsos sin asa (de cadena o de hombro) llevan la correa en curva delante del bolso: con la correa
+   «sobre el bolso», klein les ponía un asa corta (4 de 4; en curva, 0 de 8). Un *clutch*, una cartera o un
+   neceser se piden pequeños y planos, sin asas ni correa (salvo que la descripción nombre una), y se quitan
+   de su descripción las frases sobre un asa: llevado en la mano, la detección lo describía «con un asa
+   corta» y klein dibujaba un bolso con asas. Los zapatos van vacíos y el par idéntico, y los guantes, hasta
+   la muñeca salvo que el nombre diga largos (klein los alargaba).
+4. **Recorte y color** en el control (`kind=studio` de `/v1/catalog/check`):
+   - BiRefNet lite (MIT, en CPU, ~3,5 s) recorta la foto de estudio. IS-Net fallaba en 4 de 23.
+   - El recorte se iguala en CIELAB a la prenda de la foto ([`match_garment_colour`](../services/vision/app/pipeline/catalog_check.py)).
+     Se oscurece si el modelo la aclaró. Se aclara si es de color y el modelo la oscureció (los vaqueros
+     azul medio salían negros). En prendas de color se recuperan el tono y la saturación, solo en las
+     partes de color: el forro gris de una sudadera roja no se tiñe. Las prendas neutras no se aclaran
+     nunca ni cambian de tono, porque con flash el negro parece gris en la foto.
+   - Se juzgan presentación y fidelidad **sobre ese recorte**, que es lo que verá el usuario. Se admite
+     el fondo gris, pero no uno con textura. Textura, simetría y «orden» son más permisivos que con el
+     flujo anterior: en el control ciego solo rechazaban imágenes buenas.
+5. **¿Es la misma prenda?** Qwen nombra lo que muestra la foto de estudio (`POST /v1/identify`) y se
+   compara con la prenda ([`sameKindOfItem`](../services/api/src/modules/catalog-photo/prompt.ts)). Cuenta
+   la categoría y, dentro de ella, el pantalón frente al short o la falda, los tacones frente al calzado
+   plano, las zapatillas o las botas, la chaqueta frente al abrigo largo y el vestido frente al mono.
+   Esto atrapa lo que el control de colores y texturas no ve: unos salones negros dibujados como
+   mocasines, unos shorts como vaqueros largos, un frac como abrigo.
+6. **¿Conserva lo que la distingue?** (`POST /v1/verify`, [`attrs.py`](../services/imagegen/mlx/attrs.py)).
+   Qwen lee en la foto de estudio el largo, las mangas, la capucha, los cordones, el estampado o texto
+   grande, las letras, el encaje, la cinta del sombrero, los faldones, el asa, el pie de las medias, si se
+   ven pies, piernas o manos, si los dos zapatos del par difieren y el color de cada parte, y unas reglas los comparan con lo que dijo la detección: unos shorts muy cortos dibujados por
+   la rodilla (el largo de los shorts se mide en el recorte: alto/ancho), un chaleco con mangas, una
+   sudadera sin capucha, unos salones con cordones, un sombrero con una cinta inventada, un bolso de
+   cadena con asa, unas medias sin pie, letras sin sentido donde la prenda no tiene ninguna, unos
+   tacones con las piernas dentro, unos mocasines con la hebilla en uno solo o unas mangas azules
+   dibujadas grises no pasan. Un par
+   (calcetines, zapatos) cuenta como una prenda, y el largo no se compara si la foto corta la prenda. Lo que falla se convierte en
+   cómo debe ser la prenda («blue denim shorts, upper thigh length») y va en el siguiente intento justo
+   después de su descripción. Comparar las dos fotos a la vez se descartó: el modelo señalaba diferencias
+   que no existían y rechazaba también las fotos buenas (las 47 rechazadas de 50, frente a 20 malas).
+7. **Un solo modelo, por debajo de 30 s.** FLUX.2 klein 4B en MLX, sin cuantizar (14-22 s). Si en dos
+   intentos sigue dibujando **otro tipo de prenda** (el frac como traje con pantalones, en todas las
+   variantes de prompt probadas), el último intento **restaura el recorte real** (`POST /v1/restore`,
+   ~12 s): lo pone sobre el gris de estudio y klein lo limpia imagen a imagen conservando el 65 % de la
+   imagen de partida. Solo con prendas que nadie lleva puestas (extendidas, colgadas, expuestas) y vistas
+   enteras: el recorte de unas medias o unos calcetines puestos salía como tubos deformes. Si el recorte
+   está en trozos (un bolso partido por su cadena), el servidor lo rechaza y se hace un intento normal.
+   Para otros fallos (un asa, una cinta) restaurar no mejoró en el control ciego. Qwen-Image-Edit en
+   ComfyUI (~3,3 min) ya no se usa: excede los 30 s por imagen.
+
 ### Modelos comparados (24/11/2026)
 
 | Modelo | Recolocar la prenda / packshot | Coste por imagen | Licencia / condiciones | Integración |
 |---|---|---|---|---|
 | **FASHN Agent Images** ([docs](https://docs.fashn.ai/api-reference/agent-images)) | La vía de la API hacia su producto [Packshot](https://fashn.ai/packshot): maniquí invisible, flat lay, corrige arrugas y caída. Experimental desde el 26/10/2026. No existe un modelo `packshot` en `/v1/run` | 1 crédito (0,075 $) en `balanced` 1k; 0,15 $ en 2k | Las imágenes generadas son del cliente; FASHN no entrena con ellas; su CDN las borra a los 3 días | **Principal** si hay `FASHN_API_KEY` |
 | **Qwen-Image-Edit-2511 en fal.ai** ([modelo](https://fal.ai/models/fal-ai/qwen-image-edit-2511)) | Los mismos pesos que en local | 0,03 $ por megapíxel (≈ 0,035 $ a 896×1120) | Pesos Apache-2.0; fal no entrena con los datos ni da derechos sobre la salida | **Reserva** si hay `FAL_KEY` |
-| **Qwen-Image-Edit-2511 en ComfyUI propio** (GGUF Q4_K_M + Lightning, 4 pasos) | Sí: probado con polo, chaqueta de punto, vaquero y más (ver la evidencia) | Electricidad; 3–8 min por imagen en un Mac M2 Max (segundos en una GPU de servidor) | Apache-2.0 | Activo en desarrollo (`IMAGEGEN_COMFY_URL`) |
+| **FLUX.2 klein 4B en MLX** ([servidor propio](../services/imagegen/mlx/server.py), mflux fp16 sin cuantizar, 4 pasos) + Qwen3.5-35B-A3B para detectar, describir y comprobar | El mismo modelo, sin ComfyUI. Resultados en [evidence/foto-estudio-30s-2026-11-27.md](evidence/foto-estudio-30s-2026-11-27.md) | Gratis; 14-22 s por imagen (q8: ~16 s, q4: ~16 s, peor calidad) | Apache-2.0 (los dos) | **Por defecto** en local (`IMAGEGEN_MLX_URL`) |
+| FLUX.2 klein 9B / FLUX.3 klein (MLX) | Más grandes; FLUX.3 klein necesita 16 pasos | ~2× klein 4B (estimado); FLUX.3: >60 s | **Licencias no comerciales** (FLUX Non-Commercial / Kommunity), descarga tras aceptar | Descartados: >30 s y licencia |
+| FLUX.2 klein 4B en ComfyUI propio (workflow `packshot-fast`, GGUF Q8_0, 4 pasos, fp16) | 9/14 aptas al primer intento y 14/14 fieles en 7 prendas; aclara las prendas oscuras, que se corrigen después ([evidencia](evidence/packshot-rapido-2026-11-24.md)) | Gratis; **~28 s** por imagen en un Mac M2 Max | Apache-2.0 | Reserva (`IMAGEGEN_PACKSHOT_WORKFLOW=packshot-fast`) |
+| **Qwen-Image-Edit-2511 en ComfyUI propio** (workflow `packshot`, GGUF Q4_K_M + Lightning, 4 pasos) | 7/7 aptas; más fiel en el color de las prendas oscuras | Gratis; ~173-200 s por imagen en un Mac M2 Max | Apache-2.0 | **Ya no se usa** (más de 30 s por imagen); sigue disponible con `PACKSHOT_PROVIDERS=…,comfy` |
 | Qwen-Image-Edit-2509 | Versión anterior: más deriva que la 2511 | 0,03 $/MP en fal | Apache-2.0 | No se usa (sustituido por 2511) |
 | Qwen-Image-2.1 / 2.1-Turbo | Hasta 10 referencias y salida RGBA | — | **Qwen Research License: no comercial** | Descartado |
 | Gemini «Nano Banana» 2.1, OpenAI gpt-image-2.x | Editores generales, sin garantías específicas para prendas | 0,03–0,21 $ | Permiten uso comercial; marca SynthID (Gemini) | No integrados; `gpt-image-1` se cerró el 23/10/2026 |
 
-El orden es configurable: `PACKSHOT_PROVIDERS=fashn,fal,comfy`. Se usa el primero configurado y
-disponible. Si un proveedor falla sin posibilidad de reintento, se pasa al siguiente. El último
-intento usa el proveedor de reserva, si lo hay.
+El orden es configurable: `PACKSHOT_PROVIDERS=fashn,fal,mlx` (por defecto, sin ComfyUI). Se usa el
+primero configurado y disponible. Si un proveedor falla sin posibilidad de reintento, se pasa al
+siguiente. El último intento usa el proveedor de reserva, si lo hay.
 
 ### Qué recibe el modelo
 
@@ -184,11 +281,31 @@ Además:
 - un reintento añade la corrección del fallo detectado. Por ejemplo, «the previous attempt was not
   arranged properly…» o «…changed the colours. Keep exactly…».
 
+### Corrección de tono de las prendas oscuras
+
+Los modelos pequeños (klein) iluminan la foto de estudio por igual y aclaran los tejidos oscuros: el
+polo negro de la evaluación salía gris claro. Antes del control,
+[`tone.ts`](../services/api/src/modules/catalog-photo/tone.ts) compara la claridad del cuerpo de la
+prenda (percentil 30 de L\* en CIELAB, que ignora brillos, logotipos y ribetes blancos) en el recorte
+del usuario y en la foto generada. Si la prenda es oscura (L\* ≤ 42 en la foto) y la generada es al
+menos 6 puntos más clara, aplica a toda la imagen la curva L' = 100·(L/100)^γ, con γ ≤ 2,5 elegido
+para igualarlas.
+
+- La curva deja fijo el blanco del fondo y el negro, no crea halos en el borde y no cambia el tono
+  (a\* y b\* no se tocan).
+- Solo oscurece, y nunca toca las prendas claras o de tono medio: en ellas la luz de la foto del
+  usuario engaña más que el modelo (la camiseta gris en sombra mide 50 y es gris claro).
+- **Límite:** iguala la foto del usuario, no el color real. Una prenda negra fotografiada con flash
+  queda gris antracita (el polo: de 70 a 41), no negra como con Qwen.
+
 ### Cuándo se pide otra foto
 
-Si la prenda (parte de arriba, de abajo, vestido o abrigo) sale **cortada por dos o más bordes** del
-encuadre, o mide menos de 220 px, reconstruirla obligaría a inventar. La app explica por qué y ofrece
-«Hacer otra foto» o «Generar de todos modos» (`force: true`).
+Con el flujo por defecto (`studio`), solo si lo marcado no es ropa: una prenda cortada, pequeña, puesta o
+tapada se reconstruye entera a partir de su descripción, y el mensaje lo dice.
+
+Con el flujo anterior (`packshot`), si la prenda (parte de arriba, de abajo, vestido o abrigo) sale
+**cortada por dos o más bordes** del encuadre, o mide menos de 220 px. En ese caso la app explica por qué y
+ofrece «Hacer otra foto» o «Generar de todos modos» (`force: true`).
 
 ## 4. Control automático: presentación y fidelidad
 
@@ -314,15 +431,21 @@ Calibración con generaciones reales y controles negativos (detalle en la eviden
 | `LYKDAT_API_KEY` · `LYKDAT_COST_CENTS` | — · 1,67 | Lykdat |
 | `OFFICIAL_PHOTO_EXACT_SIMILARITY` · `OFFICIAL_PHOTO_POSSIBLE_SIMILARITY` | 0,86 · 0,78 | veredicto |
 | `OFFICIAL_PHOTO_WEB_IMAGES` | `link_preview` | `none`: no usar fotos de tiendas encontradas en Internet |
-| `PACKSHOT_PROVIDERS` | `fashn,fal,comfy` | orden de los generadores |
+| `PACKSHOT_PROVIDERS` | `fashn,fal,mlx` | orden de los generadores (`comfy` añade Qwen-Image-Edit, >30 s) |
+| `IMAGEGEN_MLX_URL` | — | servidor local sin ComfyUI ([`run-mlx.sh`](../services/imagegen/run-mlx.sh)): FLUX.2 klein 4B (foto de estudio, restaurar, probador) + Qwen3.5-35B-A3B (detectar, describir, comprobar) |
+| `CATALOG_STUDIO_PROMPT` | `studio` | `studio`: foto de estudio primero y recorte después; `packshot`: el flujo anterior (fondo blanco) |
+| `IMPORT_VLM_DETECTION` | `true` | al importar, el modelo de visión y lenguaje del servidor MLX detecta y describe las prendas; sin él, el detector del servicio de visión |
 | `FASHN_API_KEY` · `FASHN_GENERATION_MODE` · `FASHN_RESOLUTION` · `FASHN_CENTS_PER_CREDIT` | — · `balanced` · `1k` · 7,5 | FASHN |
 | `FAL_KEY` · `FAL_PACKSHOT_MODEL` · `FAL_COST_CENTS` | — · `fal-ai/qwen-image-edit-2511` · 3,5 | fal.ai |
-| `IMAGEGEN_COMFY_URL` · `IMAGEGEN_PACKSHOT_WORKFLOW` | — · `packshot` | ComfyUI propio |
+| `IMAGEGEN_COMFY_URL` · `IMAGEGEN_PACKSHOT_WORKFLOW` | — · `packshot` | ComfyUI propio: Qwen-Image-Edit (solo si `PACKSHOT_PROVIDERS` incluye `comfy`) |
 | `PACKSHOT_MAX_ATTEMPTS` · `PACKSHOT_TIMEOUT_MS` | 3 · 900000 | reintentos y tiempo máximo |
-| `CATALOG_DAILY_SEARCHES_PER_USER` · `CATALOG_DAILY_GENERATIONS_PER_USER` · `CATALOG_MONTHLY_BUDGET_CENTS` | 40 · 20 · 5000 | control de costes |
+| `CATALOG_DAILY_SEARCHES_PER_USER` · `CATALOG_DAILY_GENERATIONS_PER_USER` · `CATALOG_MONTHLY_BUDGET_CENTS` | 40 · 20 · 5000 | control de costes de los proveedores de pago |
+| `CATALOG_DAILY_LOCAL_GENERATIONS_PER_USER` | 300 | intentos al día por usuario con los generadores propios (MLX, ComfyUI): un armario entero de una vez |
 | `CATALOG_SEARCH_CACHE_DAYS` · `CATALOG_PHOTO_CONCURRENCY` | 30 · 2 | caché y cola |
 
 ### Credenciales que faltan en este entorno (24/11/2026)
+
+Paso a paso para conseguir cada una (webs, menús, costes y decisiones): [configurar-foto-catalogo.md](configurar-foto-catalogo.md).
 
 Ninguna de estas claves está en `.env`. La integración está hecha y probada con los contratos de cada
 API, pero **no se ha hecho ninguna búsqueda real en Internet ni ninguna generación con FASHN ni con
@@ -357,8 +480,18 @@ en el ComfyUI local, que es la usada en la evidencia.
 - **Lo que no se ve se reconstruye**: un pantalón doblado o un jersey sobre una silla esconden partes.
   La instrucción pide que sean lisas y coherentes. Solo se pide otra foto cuando la prenda sale
   cortada por el encuadre.
-- **Velocidad en local**: unos 3,5 min por imagen en el Mac de desarrollo, y hasta 15 min si comparte
-  la GPU con otros trabajos. Con FASHN, ~40 s según su documentación; con fal.ai, sin medir.
+- **Velocidad en local**: ~30 s por prenda con el flujo nuevo (1 s el nombre, ~22 s la foto, ~7 s el
+  control) y ~3 min con `packshot` (Qwen) en el Mac de desarrollo; mucho más si la memoria se llena
+  (ComfyUI, probador y visión a la vez). Alta tarda segundos porque genera en paralelo en servidores
+  con GPU; en un solo Mac, un modelo de 4 B parámetros no baja de ~20 s. Con FASHN, ~40 s según su
+  documentación; con fal.ai, sin medir.
+- **El flujo nuevo aún falla**: 30 de 50 prendas aptas a ciegas
+  ([evidencia](evidence/foto-estudio-vlm-2026-11-25.md)). Fallan:
+  - detecciones erróneas del VLM (5 de 50);
+  - largos y siluetas (shorts muy cortos dibujados por la rodilla);
+  - detalles inventados (cordones, logotipos).
+
+  La presentación (50 de 50) y el color (44 de 50) ya no son el problema.
 - **Fotos de tiendas por referencia**: pueden dejar de verse si la tienda cambia la URL o bloquea el
   *hotlinking*. La app vuelve entonces a la foto del usuario.
 - **Revisión legal pendiente**: uso de fotos de tiendas sin acuerdo (aunque sea por referencia),

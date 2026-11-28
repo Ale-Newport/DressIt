@@ -45,6 +45,8 @@ function label(key: PredKey, value: unknown): string {
 export function draftFromDetection(d: DetectionDto, overrides?: GarmentWriteDto): GarmentWriteDto {
   const p = d.predicted;
   const base: GarmentWriteDto = {
+    // The vision-language model's shop-style name ("Sudadera con capucha roja"), capitalised.
+    ...(p.vlm?.nameEs ? { name: p.vlm.nameEs.charAt(0).toUpperCase() + p.vlm.nameEs.slice(1) } : {}),
     category: p.category?.value,
     subcategory: p.subcategory?.value,
     colors: p.colors?.map((c) => ({ hex: c.hex, share: c.share })),

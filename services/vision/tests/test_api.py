@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import re
 
 import numpy as np
@@ -129,6 +130,40 @@ def test_analyze_multi_returns_each_object(client):
     assert all(i["detection_score"] is not None for i in items)
     r1 = _analyze(client, png_bytes(arr), mode="multi", max_items=1)
     assert len(r1.json()["items"]) == 1
+
+
+def test_analyze_with_boxes_from_a_vision_language_model(client):
+    """External boxes replace the detector: each one is segmented, kept in the caller's order and
+    tagged with its index, even where the detector would have merged or dropped it."""
+    arr = np.full((600, 900, 3), 240, np.uint8)
+    arr[100:500, 80:380] = (31, 42, 68)
+    arr[150:450, 520:820] = (242, 209, 60)
+    boxes = [
+        {"box": [520 / 900, 140 / 600, 830 / 900, 460 / 600], "category": "top"},
+        {"box": [70 / 900, 90 / 600, 390 / 900, 510 / 600], "category": "bottom"},
+    ]
+    r = client.post(
+        "/v1/analyze",
+        files={"file": ("p.png", png_bytes(arr), "image/png")},
+        data={"mode": "multi", "max_items": "8", "boxes": json.dumps(boxes)},
+    )
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert [i["box_index"] for i in items] == [0, 1]
+    assert items[0]["colors"][0]["family"] == "amarillo"
+    assert items[0]["bbox"][0] > 0.5 and items[1]["bbox"][2] < 0.5
+    bad = client.post(
+        "/v1/analyze",
+        files={"file": ("p.png", png_bytes(arr), "image/png")},
+        data={"mode": "multi", "boxes": json.dumps([{"box": [0, 0, 2, 1]}])},
+    )
+    assert bad.status_code == 422
+    text = client.post(
+        "/v1/analyze",
+        files={"file": ("p.png", png_bytes(arr), "image/png")},
+        data={"mode": "multi", "boxes": json.dumps([{"box": ["0", "0", "1", "1"]}])},
+    )
+    assert text.status_code == 422
 
 
 def test_png_with_alpha_uses_existing_cutout(client):

@@ -19,15 +19,22 @@ import { colorLabel } from './labels.ts';
 import { imageRef } from '../wardrobe/mappers.ts';
 import { ComfyError } from './generator.ts';
 import { checkWorn, createBase, failBase, listBases, runSequential, runViewJob, wornFidelity, type OutfitPiece } from './avatar.ts';
+import { buildTryonPrompt, tryonLabel } from './tryon-prompt.ts';
+import { localVlm } from '../catalog-photo/service.ts';
+import { englishLabel } from '../catalog-photo/prompt.ts';
 
 /** Categories never rendered on a person (swimwear): avatars are always fully clothed. */
 const NO_AVATAR_CATEGORIES = new Set(['swimwear']);
 
 export async function generationStatus(ctx: AppContext): Promise<GenerationServiceStatusDto> {
-  const [info, tryon] = await Promise.all([ctx.imagegen.info(), ctx.tryon ? ctx.tryon.health() : Promise.resolve(false)]);
-  // With the try-on service up, renders work even when the generator is down (no shoes/accessory pass).
-  return { ...info, avatar: info.avatar || tryon, tryon };
+  const mlx = localVlm(ctx);
+  const [info, tryon, fast] = await Promise.all([ctx.imagegen.info(), ctx.tryon ? ctx.tryon.health() : Promise.resolve(false), mlx ? mlx.available() : Promise.resolve(false)]);
+  // With the try-on service or the fast one-pass editor up, renders work even when ComfyUI is down
+  // (`available` stays ComfyUI's: the generated avatar views need it).
+  return { ...info, avatar: info.avatar || tryon || fast, tryon, fast, models: { ...info.models, avatar: fast ? FAST_MODEL : info.models.avatar } };
 }
+
+const FAST_MODEL = 'FLUX.2 klein 4B (MLX)';
 
 async function consentGranted(trx: Tx, kind: 'ai_image_generation' | 'avatar'): Promise<boolean> {
   const row = await trx.selectFrom('consents').select('granted').where('kind', '=', kind).orderBy('created_at', 'desc').limit(1).executeTakeFirst();
@@ -121,15 +128,18 @@ async function garmentCutout(trx: Tx, garmentId: string) {
   const g = await trx.selectFrom('garments').selectAll().where('id', '=', garmentId).executeTakeFirst();
   if (!g) throw notFound('Prenda');
   const primary = g.primary_image_id ? await trx.selectFrom('garment_images').selectAll().where('id', '=', g.primary_image_id).executeTakeFirst() : null;
+  // Its picture when that is a cut-out (its own cutout or a studio photo, which is stored cut out); else
+  // its latest cutout. A garment whose picture is a studio photo may have no cutout linked to it: it was
+  // left out of the outfit (a skirt went missing from every try-on).
   const cutout =
-    primary?.kind === 'cutout'
+    primary?.kind === 'cutout' || primary?.kind === 'studio'
       ? primary
       : await trx.selectFrom('garment_images').selectAll().where('garment_id', '=', garmentId).where('kind', '=', 'cutout').orderBy('created_at', 'desc').limit(1).executeTakeFirst();
   return { garment: g, cutout: cutout ?? null };
 }
 
 
-export async function createAvatarJob(ctx: AppContext, trx: Tx, userId: string, outfitId: string, opts: { baseId?: string; method?: 'sequential' | 'joint' } = {}): Promise<string> {
+export async function createAvatarJob(ctx: AppContext, trx: Tx, userId: string, outfitId: string, opts: { baseId?: string; method?: 'fast' | 'sequential' | 'joint' } = {}): Promise<string> {
   await requireConsent(trx, 'ai_image_generation');
   await requireConsent(trx, 'avatar');
   const profile = await trx.selectFrom('avatar_profiles').selectAll().executeTakeFirst();
@@ -140,18 +150,22 @@ export async function createAvatarJob(ctx: AppContext, trx: Tx, userId: string, 
   if (!items.length) throw badRequest('Este conjunto no tiene prendas con foto.');
   if (items.some((i) => NO_AVATAR_CATEGORIES.has(i.garment.category))) throw badRequest('Los avatares no se generan con ropa de baño.');
   const status = await generationStatus(ctx);
-  const method = opts.method ?? (status.tryon ? ctx.cfg.AVATAR_METHOD : 'joint');
+  // The configured method when it is up; otherwise the fast one, the try-on service, or one pass.
+  const preferred = ctx.cfg.AVATAR_METHOD;
+  const up = (m: 'fast' | 'sequential' | 'joint') => (m === 'fast' ? !!status.fast : m === 'sequential' ? !!status.tryon : true);
+  const method = opts.method ?? (up(preferred) ? preferred : status.fast ? 'fast' : status.tryon ? 'sequential' : 'joint');
+  if (method === 'fast' && !status.fast) throw unavailable('El probador rápido no está disponible ahora mismo.');
   if (method === 'sequential' && !status.tryon) throw unavailable('El probador virtual no está disponible ahora mismo. Prueba el método de una sola pasada.');
   if (method === 'joint') {
     if (!profile.face_image_id) throw badRequest('El método de una sola pasada necesita también tu foto de cara.');
     if (!(await ctx.imagegen.info()).avatar) throw unavailable('El generador de imágenes no está disponible ahora mismo.');
   }
-  if (method === 'sequential' && !items.some((i) => ['base', 'mid', 'outer', 'bottom', 'one_piece'].includes(i.slot))) {
+  if (method !== 'joint' && !items.some((i) => ['base', 'mid', 'outer', 'bottom', 'one_piece'].includes(i.slot))) {
     throw badRequest('El probador necesita al menos una prenda de arriba, de abajo o un vestido.');
   }
   // The avatar image to dress: the one chosen, or the frontal studio base (built now if missing).
   let baseId = opts.baseId ?? null;
-  if (method === 'sequential') {
+  if (method !== 'joint') {
     if (baseId) {
       const b = await trx.selectFrom('avatar_bases').select(['status']).where('id', '=', baseId).executeTakeFirst();
       if (!b) throw notFound('Imagen del avatar');
@@ -160,7 +174,12 @@ export async function createAvatarJob(ctx: AppContext, trx: Tx, userId: string, 
   }
   const busy = await trx.selectFrom('generation_jobs').select('id').where('outfit_id', '=', outfitId).where('status', 'in', ['queued', 'running']).executeTakeFirst();
   if (busy) return busy.id;
-  const model = method === 'sequential' ? `FASHN VTON v1.5${status.avatar && ctx.imagegen.hasWorkflow('tryon-accessories') ? ' + Qwen-Image-Edit-2511' : ''}` : (status.models.avatar ?? 'Qwen-Image-Edit-2511');
+  const model =
+    method === 'fast'
+      ? FAST_MODEL
+      : method === 'sequential'
+        ? `FASHN VTON v1.5${status.avatar && ctx.imagegen.hasWorkflow('tryon-accessories') ? ' + Qwen-Image-Edit-2511' : ''}`
+        : (ctx.imagegen.workflowModel(ctx.cfg.IMAGEGEN_AVATAR_WORKFLOW) ?? 'Qwen-Image-Edit-2511');
   const row = await trx
     .insertInto('generation_jobs')
     .values({ user_id: userId, kind: 'avatar', outfit_id: outfitId, model, method, avatar_base_id: baseId, input: JSON.stringify({ garmentIds: items.map((i) => i.garment.id) }) })
@@ -248,7 +267,8 @@ export async function processGeneration(ctx: AppContext, job: GenerationJob, att
     if (row.kind === 'avatar_view') {
       const { imageId } = await runViewJob(ctx, job.userId, row, seed);
       await finish(ctx, job.userId, row.id, { status: 'done', result_image_id: imageId });
-    } else if (row.method === 'sequential') await runAvatarSequential(ctx, job.userId, row);
+    } else if (row.method === 'fast') await runAvatarFast(ctx, job.userId, row, seed);
+    else if (row.method === 'sequential') await runAvatarSequential(ctx, job.userId, row);
     else await runAvatar(ctx, job.userId, row, seed);
   } catch (e) {
     const retryable = e instanceof ComfyError ? e.retryable : true;
@@ -294,6 +314,87 @@ async function runAvatar(ctx: AppContext, userId: string, row: NonNullable<JobRo
     return;
   }
   const imageId = await withUser(ctx.db, userId, (trx) => storeGenerated(ctx, trx, userId, render, 'avatar_render', { model: row.model ?? 'desconocido' }));
+  await finish(ctx, userId, row.id, { status: 'done', fidelity, result_image_id: imageId });
+}
+
+/**
+ * The pieces a one-pass render shows, at most 4 (the editor mixes up more): the outer layer, the bottom
+ * or one-piece, the shoes, then an inner layer (it shows under an open jacket) or one accessory.
+ */
+export function piecesForFastRender<T extends { slot: string }>(items: T[]): T[] {
+  const { shown, layered } = visibleForAvatar(items);
+  const out = [...shown];
+  if (out.length < 4 && layered[0]) out.splice(1, 0, layered[0]);
+  return out.slice(0, 4);
+}
+
+/**
+ * Fast try-on: FLUX.2 klein in the local MLX server dresses the user's avatar photo with each garment's
+ * own picture (its studio or catalogue photo when it has one), in one pass of ~15–25 s. The face, body,
+ * pose and background are those of the photo; then the same gate as the other methods.
+ */
+async function runAvatarFast(ctx: AppContext, userId: string, row: NonNullable<JobRow>, seed: number) {
+  const mlx = localVlm(ctx);
+  if (!mlx) throw new ComfyError('El probador rápido no está configurado.', false);
+  const data = await withUser(ctx.db, userId, async (trx) => {
+    const base = row.avatar_base_id ? await trx.selectFrom('avatar_bases').select(['image_id']).where('id', '=', row.avatar_base_id).executeTakeFirst() : null;
+    const img = base?.image_id ? await trx.selectFrom('garment_images').select(['id', 'storage_key']).where('id', '=', base.image_id).executeTakeFirst() : null;
+    const items = await outfitGarments(trx, row.outfit_id!);
+    const pieces = piecesForFastRender(items);
+    const ids = pieces.length ? pieces.map((p) => p.garment.id) : ['00000000-0000-0000-0000-000000000000'];
+    const primaries = await trx.selectFrom('garment_images').select(['id', 'garment_id', 'kind', 'storage_key']).where('id', 'in', pieces.map((p) => p.garment.primary_image_id).filter((v): v is string => !!v).concat(['00000000-0000-0000-0000-000000000000'])).execute();
+    // The garment as the vision-language model named it at import ("red hooded sweatshirt"), in English.
+    const named = await trx
+      .selectFrom('import_detections')
+      .select(['garment_id', sql<string | null>`predicted->'vlm'->>'name'`.as('name'), sql<string | null>`predicted->'vlm'->'attributes'->>'length'`.as('length')])
+      .where('garment_id', 'in', ids)
+      .execute();
+    const embs = await trx.selectFrom('garment_embeddings').select(['garment_id', sqlEmbedding]).where('garment_id', 'in', ids).execute();
+    return { img, pieces, primaries, named, embs };
+  });
+  if (!data.img) throw new ComfyError('La imagen de tu avatar ya no existe. Vuelve a crearla en «Tu avatar».', false);
+  const person = await ctx.storage.get(data.img.storage_key);
+  if (!person) throw new ComfyError('No se encuentra la imagen de tu avatar.', false);
+  const garments: Buffer[] = [];
+  const labels: string[] = [];
+  for (const p of data.pieces) {
+    // Its studio or catalogue photo when that is its picture (cleaner, complete), else its cutout.
+    const primary = data.primaries.find((i) => i.id === p.garment.primary_image_id && (i.kind === 'studio' || i.kind === 'cutout'));
+    const body = await ctx.storage.get((primary ?? p.cutout).storage_key);
+    if (!body) continue;
+    garments.push(await sharp(body).flatten({ background: '#ececec' }).png().toBuffer());
+    const vlm = data.named.find((n) => n.garment_id === p.garment.id && n.name);
+    const label = (vlm?.name ?? englishLabel(p.garment.subcategory, p.garment.primary_color)).toLowerCase();
+    labels.push(tryonLabel(label, vlm?.length, p.garment.category));
+  }
+  if (!garments.length) throw new ComfyError('Las prendas de este conjunto no tienen foto.', false);
+  // klein sometimes leaves one garment out (keeps the person's leggings instead of the skirt): the
+  // vision-language model checks each one is worn, and one more pass with another seed fixes it.
+  let render: Buffer | null = null;
+  let missing = Infinity;
+  for (let n = 0; n < 2 && missing > 0; n++) {
+    const { image } = await mlx.tryon({ person, garments, prompt: buildTryonPrompt(labels), seed: seed + n * 7919 });
+    const worn = await mlx.tryonWorn(image, labels);
+    const left = worn ? worn.filter((w) => !w).length : 0;
+    if (left < missing) {
+      render = image;
+      missing = left;
+    }
+  }
+  if (!render) throw new ComfyError('No se ha podido generar la imagen.', true);
+  const analysis = await ctx.vision.analyze(render, 'image/png', 'multi', 8);
+  const shownIds = new Set(data.pieces.map((p) => p.garment.id));
+  const garmentEmbeddings = data.embs.filter((e) => shownIds.has(e.garment_id)).map((e) => parseVector(e.embedding_text)).filter((v): v is number[] => !!v);
+  const fidelity = avatarFidelity(
+    analysis.items.map((i) => i.embedding ?? []).filter((v) => v.length),
+    garmentEmbeddings,
+    ctx.cfg.IMAGEGEN_AVATAR_MIN_SIMILARITY,
+  );
+  if (!fidelity.passed) {
+    await finish(ctx, userId, row.id, { status: 'rejected', error: fidelity.reason, fidelity });
+    return;
+  }
+  const imageId = await withUser(ctx.db, userId, (trx) => storeGenerated(ctx, trx, userId, render, 'avatar_render', { model: row.model ?? FAST_MODEL }));
   await finish(ctx, userId, row.id, { status: 'done', fidelity, result_image_id: imageId });
 }
 

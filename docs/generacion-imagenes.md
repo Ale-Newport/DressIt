@@ -24,7 +24,8 @@ App ──POST /v1/outfits/:id/avatar──▶ API ──cola image-generation (
           ▼
   aceptada → garment_images (kind avatar_render, generated_by)      rechazada → nada guardado, motivo al usuario
 
-App ──foto de catálogo──▶ cola catalog-photo (ver foto-catalogo.md): FASHN · fal.ai · ComfyUI (workflow packshot)
+App ──foto de catálogo──▶ cola catalog-photo (ver foto-catalogo.md): FASHN · fal.ai · servidor MLX (klein + Qwen3.5-35B-A3B, sin ComfyUI; por defecto)
+App ──verme con este conjunto──▶ probador rápido en el servidor MLX (klein, una pasada, ~20 s; ver probador-virtual.md)
 ```
 
 - **ComfyUI** ([`services/imagegen`](../services/imagegen/README.md)) corre como programa aparte y se
@@ -57,9 +58,10 @@ pesos con licencia que permita uso comercial.
 
 | Uso | Modelo | Licencia | Descartados y motivo |
 |---|---|---|---|
-| Foto de catálogo (packshot) | **Qwen-Image-Edit-2511** (Q4_K_M) + LoRA Lightning de 4 pasos; FASHN Agent Images y fal.ai si hay claves | Apache-2.0 | FLUX.1 Kontext [dev], FLUX.2 [dev] y klein 9B: licencia no comercial. Qwen-Image-2.1: Qwen Research License. LBM: CC BY-NC. BRIA RMBG-2.0: no comercial. |
+| Foto de catálogo (packshot) | **FLUX.2 klein 4B en MLX**, fp16, con Qwen3.5-35B-A3B para detectar, describir y comprobar cada prenda (por defecto; todo por debajo de 30 s por imagen; [evidencia](evidence/foto-estudio-30s-2026-11-27.md)); en ComfyUI, **FLUX.2 klein 4B** (Q8_0, fp16, `packshot-fast`: ~28 s) o **Qwen-Image-Edit-2511** (Q4_K_M) + LoRA Lightning de 4 pasos (`packshot`: ~173 s, más fiel en prendas negras; [evidencia](evidence/packshot-rapido-2026-11-24.md)); FASHN Agent Images y fal.ai si hay claves | Apache-2.0 | FLUX.1 Kontext [dev], FLUX.2 [dev] y klein 9B: licencia no comercial. Qwen-Image-2.1: Qwen Research License. LBM: CC BY-NC. BRIA RMBG-2.0: no comercial. |
 | (retirada) Foto de estudio rápida | FLUX.2 klein 4B (Q8_0) | Apache-2.0 | Más deriva de color; ya no se usa para prendas |
-| Avatar, una sola pasada | **Qwen-Image-Edit-2511**, con 3 imágenes: cuerpo, tablero del conjunto y cara | Apache-2.0 | Ver la tabla completa en [probador-virtual.md](probador-virtual.md#2-modelos-evaluados-y-elegidos). |
+| Avatar, probador rápido (por defecto) | **FLUX.2 klein 4B en MLX**: la foto del avatar y la de cada prenda (hasta 4) en una pasada de 17-23 s | Apache-2.0 | Ver [probador-virtual.md](probador-virtual.md#0-método-rápido-por-defecto-desde-el-27112026). |
+| Avatar, una sola pasada (ComfyUI) | **Qwen-Image-Edit-2511**, con 3 imágenes: cuerpo, tablero del conjunto y cara (~3 min) | Apache-2.0 | Ver la tabla completa en [probador-virtual.md](probador-virtual.md#2-modelos-evaluados-y-elegidos). |
 | Avatar, por pasos (por defecto) | **FASHN VTON v1.5** + Sapiens2 + Qwen para calzado y complementos | Apache-2.0 / Sapiens2 License | — |
 | Vistas del avatar (3/4, perfil) | Qwen-Image-Edit-2511 + **Multiple-Angles LoRA** (fal) | Apache-2.0 | — |
 
@@ -132,7 +134,7 @@ tenga licencia abierta.
 
 ## Limitaciones
 
-- **En el Mac de desarrollo es lento:** 3–8 min por foto de catálogo generada y unos 9 min por avatar. En
+- **En el Mac de desarrollo:** ~30 s por foto de catálogo con el servidor MLX (nombre, foto y control; ~3 min con Qwen) y unos 9 min por avatar. En
   una GPU de servidor serían segundos (ver [README del servidor](../services/imagegen/README.md)).
 - **Deriva de detalles:** botones, punto, rotos y accesorios. Se ha reducido con instrucciones más
   estrictas, pero no está resuelta.

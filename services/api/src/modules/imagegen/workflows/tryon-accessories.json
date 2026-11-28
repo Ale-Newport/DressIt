@@ -102,23 +102,10 @@
     }
   },
   "21": {
-    "class_type": "TextEncodeQwenImageEditPlus",
+    "class_type": "ConditioningZeroOut",
     "inputs": {
-      "clip": [
-        "2",
-        0
-      ],
-      "prompt": "",
-      "vae": [
-        "3",
-        0
-      ],
-      "image1": [
-        "11",
-        0
-      ],
-      "image2": [
-        "13",
+      "conditioning": [
+        "20",
         0
       ]
     }

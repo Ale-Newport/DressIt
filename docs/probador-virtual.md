@@ -10,6 +10,33 @@ después puede **verse con cualquier conjunto** de su armario: parte de arriba, 
 calzado y un complemento. La imagen se genera en el servidor, se comprueba que cada prenda visible se
 parece a la real y se muestra junto al conjunto real con la etiqueta «Generada con IA».
 
+## 0. Método rápido (por defecto desde el 27/11/2026)
+
+`AVATAR_METHOD=fast`: **FLUX.2 klein 4B** (Apache-2.0) en el [servidor MLX](../services/imagegen/mlx/server.py)
+(`POST /v1/tryon`) recibe la foto del avatar y la foto de cada prenda (su foto de estudio o de catálogo
+si la tiene; si no, su recorte) y, en **una sola pasada de ~20 s**, devuelve a la misma persona vestida
+con ellas. Es edición con varias referencias: la imagen 1 es la persona, de ella salen cara, pelo,
+cuerpo, postura, encuadre y fondo; las imágenes 2… son las prendas ([`buildTryonPrompt`](../services/api/src/modules/imagegen/tryon-prompt.ts)).
+Hasta 4 piezas (capa exterior, una capa interior si cabe, parte de abajo o vestido, calzado o un
+complemento). Cada prenda se nombra como la nombró la detección y, si es de abajo, un vestido o un
+abrigo, con el largo que vio («light blue denim jeans (full length, down to the ankles)»): sin él,
+unos vaqueros puestos sobre las mallas del avatar salían como bermudas con mallas azules. Qwen comprueba
+que la persona lleva cada prenda y, si falta alguna, se repite con otra semilla (dos pasadas como
+máximo). Después pasa el mismo control de fidelidad que los otros métodos.
+
+| Medida (M2 Max, fp16) | Resultado |
+|---|---|
+| Tiempo con 2-4 prendas (persona 0,45 MP, prendas 0,15 MP, salida 0,5 MP) | **19,5-22,6 s** |
+| Con referencias mayores (0,6 / 0,25 / 0,6 MP) | 24-36 s, la misma calidad: **descartado** (pasa de 30 s) |
+| Caché de las referencias (`use_kv_cache`) | no funciona con klein 4B en mflux 0.24: descartado |
+
+Por qué sustituye a los otros dos métodos como predeterminado: FASHN VTON tarda 1-2 min por prenda y
+Qwen-Image-Edit ~3 min por pasada, por encima de los 30 s por imagen exigidos; klein conserva la
+identidad (cara, pelo, piel, complexión) y el fondo de la foto, y viste con las prendas de las fotos,
+incluidas las de estampado y logotipo. Los otros métodos siguen disponibles (`sequential`, `joint`).
+Evaluación ciega con personas reales y sintéticas de distintas edades, sexos y complexiones:
+[evidence/foto-estudio-30s-2026-11-27.md](evidence/foto-estudio-30s-2026-11-27.md).
+
 ## 1. Cómo funciona
 
 ```
@@ -99,7 +126,7 @@ métodos con fotos reales (§4).
 
 ## 4. Resultados medidos
 
-RESULTADOS_PENDIENTES
+Método rápido (por defecto): ver §0 y [evidence/foto-estudio-30s-2026-11-27.md](evidence/foto-estudio-30s-2026-11-27.md) (9 de 12 aptas a ciegas, 17-23 s). Los métodos `sequential` y `joint` no se han vuelto a medir.
 
 ## 5. Cómo arrancarlo
 

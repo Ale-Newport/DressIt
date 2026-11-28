@@ -32,7 +32,39 @@ salta lo que ya está. `setup.sh qwen` o `setup.sh klein` instalan solo un model
 
 Se usan versiones GGUF porque FP8 no funciona en Apple Silicon (MPS).
 
-## Arrancar
+## Servidor MLX: detectar, comprobar y fotografiar cada prenda, y vestir al usuario (por defecto en Mac)
+
+```bash
+services/imagegen/run-mlx.sh
+```
+
+Después, en `.env`: `IMAGEGEN_MLX_URL=http://127.0.0.1:8189` y `PACKSHOT_PROVIDERS=mlx`. Es un programa
+pequeño ([`mlx/server.py`](mlx/server.py), [`mlx/garments.py`](mlx/garments.py), [`mlx/attrs.py`](mlx/attrs.py)
+y [`mlx/restore.py`](mlx/restore.py)) que mantiene en memoria dos modelos nativos de Apple Silicon (MLX),
+sin ComfyUI (~36 GB en total):
+
+| Modelo | Para qué | Licencia | Descarga | Tiempo (M2 Max) |
+|---|---|---|---|---|
+| Qwen3.5-35B-A3B 4-bit ([mlx-vlm](https://github.com/Blaizzy/mlx-vlm) 0.8.1; mezcla de expertos con 3 B activos) | `POST /v1/garments`: todas las prendas de la foto entera, cada una como **una** (un frac; un par de zapatos), con su caja, nombre en inglés y en español, la descripción de la prenda **completa** y lo que su foto de catálogo debe conservar (largo, mangas, capucha, cordones, estampado grande, encaje, cinta, faldones, asa, color de cada parte) y si alguien la lleva puesta. `POST /v1/verify`: lee esos rasgos en la foto de estudio y los compara por reglas. `POST /v1/identify`: qué prenda muestra una foto de estudio | Apache-2.0 | ~20 GB | 4-15 s por foto; ~2 s por comprobación |
+| FLUX.2 klein 4B ([mflux](https://github.com/filipstrand/mflux) 0.24, fp16 sin cuantizar) | `POST /v1/edit`: la foto de estudio. `POST /v1/restore`: el recorte real de una prenda que nadie lleva puesta, limpiado (imagen a imagen), cuando klein dibuja otra prenda; rechaza (422) los recortes en trozos. `POST /v1/tryon`: la persona de su foto vistiendo hasta 4 prendas; `POST /v1/tryon/check`: qué prendas lleva de verdad | Apache-2.0 | ~15 GB | 14-22 s la foto de estudio, ~12 s la restaurada, 19-23 s el probador |
+
+- **Todo por debajo de 30 s por imagen.** Sin cuantizar, klein es más rápido que en q8 o q4 (mediana 14 s
+  frente a 16 s) y más fiel. Qwen-Image-Edit (ComfyUI, ~3 min) y FLUX.3 klein (16 pasos) se descartan por
+  lentos; FLUX.2 klein 9B y FLUX.3 klein además exigen aceptar una licencia no comercial.
+- Una sola cola (un hilo: MLX no comparte su *stream* entre hilos), así que la API puede enviar varias
+  prendas a la vez sin saturar la GPU.
+- La caché de MLX se limita a `MLX_CACHE_GB` (2) y se vacía tras cada trabajo.
+- `MLX_VLM` elige el modelo de visión y lenguaje (`none` lo desactiva); `MLX_QUANTIZE=8` cuantiza klein.
+- Pruebas sin modelos: `.mflux-venv/bin/python -m pytest services/imagegen/mlx/test_garments.py`.
+- Bancos de pruebas sin la API: [`mlx/bench.py`](mlx/bench.py) (tiempos y variantes de klein),
+  [`mlx/loop_bench.py`](mlx/loop_bench.py) (generar → comprobar → reintentar → restaurar, como la API),
+  [`mlx/vlm_bench.py`](mlx/vlm_bench.py) (detección) y [`mlx/bench_tryon.py`](mlx/bench_tryon.py) (probador).
+  Los datos de entrada los exportan `services/api/scripts/studio-dataset.ts` y `studio-prompts.ts`.
+
+Detalle y medidas: [docs/foto-catalogo.md](../../docs/foto-catalogo.md) y
+[docs/probador-virtual.md](../../docs/probador-virtual.md).
+
+## Arrancar ComfyUI (vistas del avatar y métodos antiguos del probador; opcional)
 
 ```bash
 services/imagegen/run.sh
@@ -47,7 +79,17 @@ generación y la app oculta esas funciones.
 ```bash
 cd services/api
 node scripts/imagegen-try.ts packshot <foto.jpg> /tmp/packshot.png cardigan camel
+# velocidad y control de calidad sobre las fotos de evaluación (packshot-fast = klein, packshot = Qwen)
+node --env-file=../../.env scripts/packshot-bench.ts packshot-fast /tmp/bench
+# tiempo de cada nodo de ComfyUI
+node --env-file=../../.env scripts/imagegen-profile.ts packshot-fast <foto.jpg> /tmp/p.png cardigan
 ```
+
+La foto de catálogo usa por defecto `packshot-fast` (FLUX.2 klein 4B, ~28 s en un M2 Max); `packshot`
+(Qwen-Image-Edit, ~3 min) es más fiel en prendas negras; la API oscurece después las prendas oscuras que klein aclara. Medidas en
+[docs/evidence/packshot-rapido-2026-11-24.md](../../docs/evidence/packshot-rapido-2026-11-24.md).
+Con ComfyUI, el probador virtual y el servicio de visión cargados a la vez, un Mac de 64 GB puede
+quedarse sin memoria y ComfyUI se para: arranca solo los servicios que vayas a usar.
 
 ## Producción
 

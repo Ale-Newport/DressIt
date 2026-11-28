@@ -32,7 +32,7 @@ Lista honesta de lo que **no** funciona todavía o funciona con restricciones.
 11. **S3**: el controlador S3 está implementado pero los tests usan almacenamiento local.
 12. **Probador virtual y fotos generadas** ([probador-virtual.md](probador-virtual.md),
     [generacion-imagenes.md](generacion-imagenes.md)): funcionan en local con modelos abiertos, pero en
-    el Mac de desarrollo tardan minutos (1,5–2 min por prenda; 3–8 min por foto de catálogo generada); FASHN no
+    el Mac de desarrollo tardan minutos con los métodos antiguos (1,5–2 min por prenda con FASHN, ~3 min con Qwen); el probador rápido (por defecto) tarda 17–23 s y la foto de catálogo 14–22 s por intento con klein en MLX (resultados de los controles ciegos en [evidence/foto-estudio-30s-2026-11-27.md](evidence/foto-estudio-30s-2026-11-27.md)); FASHN no
     viste calzado ni complementos (van en una pasada de Qwen-Image-Edit); con ropa voluminosa en la foto
     del avatar quedan artefactos en la cintura; el control de fidelidad compara aspecto y color por
     zona, no detalles finos. SAM 3 no integrado (pesos tras formulario de acceso). Sapiens2 License y

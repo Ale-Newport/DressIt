@@ -3,7 +3,7 @@ import type { AvatarBackground, AvatarBaseDto, AvatarView, GenerationJobDto } fr
 export const VIEW_LABEL: Record<AvatarView, string> = { frontal: 'De frente', tres_cuartos: 'Tres cuartos', perfil: 'De perfil' };
 export const BACKGROUND_LABEL: Record<AvatarBackground, string> = { estudio_gris: 'Estudio gris', blanco: 'Blanco', beige: 'Beige', original: 'Tu fondo' };
 export const BACKGROUND_SWATCH: Record<AvatarBackground, string | null> = { estudio_gris: '#e2dfda', blanco: '#ffffff', beige: '#ebe1d3', original: null };
-export const METHOD_LABEL: Record<'sequential' | 'joint', string> = { sequential: 'Probador (prenda a prenda)', joint: 'Una sola pasada' };
+export const METHOD_LABEL: Record<'fast' | 'sequential' | 'joint', string> = { fast: 'Rápido', sequential: 'Probador (prenda a prenda)', joint: 'Una sola pasada' };
 
 export const baseLabel = (b: Pick<AvatarBaseDto, 'view' | 'background'>) => `${VIEW_LABEL[b.view]} · ${BACKGROUND_LABEL[b.background]}`;
 

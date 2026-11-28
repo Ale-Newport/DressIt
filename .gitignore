@@ -25,6 +25,7 @@ apps/mobile/.expo/
 
 # Image generation server (ComfyUI checkout, its venv and model weights; see services/imagegen/README.md)
 services/imagegen/comfyui/
+services/imagegen/.mflux-venv/
 services/tryon/models/
 services/tryon/vendor/
 services/tryon/.venv/

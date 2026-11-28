@@ -103,6 +103,7 @@ class TorchBackend:
         torch.set_grad_enabled(False)
         self._clip = _Lazy("embedding", self._load_clip)
         self._rembg = _Lazy("background_removal", self._load_rembg)
+        self._studio = _Lazy("studio_matte", self._load_studio_matte)
         self._detector = _Lazy("detector", self._load_detector)
         self._sam = _Lazy("box_segmentation", self._load_sam)
         self._ocr = _Lazy("ocr", self._load_ocr)
@@ -120,12 +121,21 @@ class TorchBackend:
         return model, preprocess, tokenizer
 
     def _load_rembg(self) -> Any:
+        return self._rembg_session(self.segmenter_name)
+
+    def _load_studio_matte(self) -> Any:
+        # CPU only: onnxruntime's CoreML provider hangs compiling BiRefNet (seen on macOS 27,
+        # onnxruntime CoreMLExecutionProvider::Compile never returns). The lite model takes ~3.5 s on CPU.
+        return self._rembg_session(self.settings.studio_matte, coreml=False)
+
+    def _rembg_session(self, name: str, *, coreml: bool = True) -> Any:
         import onnxruntime as ort
         from rembg import new_session
 
         providers: list[Any] = ["CPUExecutionProvider"]
         if (
-            self.settings.onnx_coreml
+            coreml
+            and self.settings.onnx_coreml
             and "CoreMLExecutionProvider" in ort.get_available_providers()
         ):
             # Apple Silicon: ~3x faster than CPU. The compiled CoreML model is cached on disk,
@@ -136,7 +146,7 @@ class TorchBackend:
                 0, ("CoreMLExecutionProvider", {"ModelCacheDirectory": str(cache)})
             )
         # Model name is ALWAYS explicit: rembg's default (bria-rmbg) is non-commercial.
-        return new_session(self.segmenter_name, providers=providers)
+        return new_session(name, providers=providers)
 
     def _load_detector(self) -> tuple[Any, Any]:
         from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
@@ -194,6 +204,15 @@ class TorchBackend:
     def remove_background(self, image: Image.Image) -> np.ndarray:
         session = self._rembg.get()
         with self._rembg.run_lock:
+            masks = session.predict(image.convert("RGB"))
+        mask = masks[0]
+        if mask.size != image.size:
+            mask = mask.resize(image.size, Image.Resampling.BILINEAR)
+        return np.asarray(mask, dtype=np.float32) / 255.0
+
+    def matte_studio(self, image: Image.Image) -> np.ndarray:
+        session = self._studio.get()
+        with self._studio.run_lock:
             masks = session.predict(image.convert("RGB"))
         mask = masks[0]
         if mask.size != image.size:
@@ -335,6 +354,7 @@ class TorchBackend:
         return {
             self.embedding_model_id: self._clip.loaded,
             f"rembg:{self.segmenter_name}": self._rembg.loaded,
+            f"rembg:{self.settings.studio_matte}": self._studio.loaded,
             self.detector_id: self._detector.loaded,
             SAM_MODEL_ID: self._sam.loaded,
             "easyocr": self._ocr.loaded,
@@ -347,6 +367,7 @@ class TorchBackend:
             "backend": "torch",
             "embedding": f"{self.embedding_model_id}@{_hf_revision(self.embedding_model_id)}",
             "background_removal": f"rembg {_pkg_version('rembg')}:{self.segmenter_name}",
+            "studio_matte": f"rembg {_pkg_version('rembg')}:{self.settings.studio_matte}",
             "detector": f"{self.detector_id}@{_hf_revision(self.detector_id)}",
             "box_segmentation": f"{SAM_MODEL_ID}@{_hf_revision(SAM_MODEL_ID)}",
             "torch": _pkg_version("torch"),

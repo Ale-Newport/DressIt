@@ -19,7 +19,7 @@ afterAll(async () => {
   await t?.close();
 });
 beforeEach(() => {
-  Object.assign(catalogState, { results: [], searches: [], outputs: [], prompts: [], checks: [], failPresentation: 0, failFidelity: 0, ocr: '', generatorAvailable: true });
+  Object.assign(catalogState, { results: [], searches: [], outputs: [], prompts: [], checks: [], failPresentation: 0, failFidelity: 0, ocr: '', generatorAvailable: true, vlm: null });
 });
 
 type Auth = Record<string, string>;
@@ -58,7 +58,10 @@ describe('catalogue photo: configuration', () => {
         { id: 'lykdat', label: 'Lykdat', configured: false, missing: ['LYKDAT_API_KEY'] },
       ]),
     );
-    expect(s.generation).toEqual([{ id: 'fal', label: 'fal.ai', model: 'fake-packshot', configured: true, available: true, missing: [] }]);
+    expect(s.generation).toEqual([
+      { id: 'fal', label: 'fal.ai', model: 'fake-packshot', configured: true, available: true, missing: [] },
+      { id: 'mlx', label: 'MLX (este Mac)', model: 'FLUX.2 klein 4B (MLX)', configured: true, available: false, missing: [] },
+    ]);
     expect(s.limits).toMatchObject({ searchesPerDay: 40, generationsPerDay: 20, maxAttempts: 3 });
     expect(JSON.stringify(s)).not.toMatch(/key=|Bearer/);
   });
@@ -164,10 +167,11 @@ describe('catalogue photo: AI packshot when there is no official photo', () => {
     expect(job.attempts).toHaveLength(2);
     expect(job.attempts[0].check).toMatchObject({ passed: false, presentationPassed: false });
     expect(job.attempts[1].check).toMatchObject({ passed: true, similarity: 0.95 });
-    // The prompt is the owner's base prompt, specialised for the category, and the retry adds the correction.
-    expect(catalogState.prompts[0]).toMatch(/^Transform the uploaded reference photograph into a premium professional e-commerce product photograph of the EXACT SAME garment/);
+    // Studio photo first (CATALOG_STUDIO_PROMPT=studio): the garment named, specialised for the
+    // category, on light grey to be cut out afterwards; the retry adds the correction.
+    expect(catalogState.prompts[0]).toMatch(/^Professional e-commerce studio product photo of the exact /);
     expect(catalogState.prompts[0]).toMatch(/both sleeves unfolded and laid out symmetrically/);
-    expect(catalogState.prompts[0]).toMatch(/NOT a simple background removal/);
+    expect(catalogState.prompts[0]).toMatch(/very light grey \(almost white\) studio background/);
     expect(catalogState.prompts[0]).not.toMatch(/previous attempt/);
     expect(catalogState.prompts[1]).toMatch(/previous attempt was not arranged properly/);
     expect(job.generated).toMatchObject({ generatedBy: 'fake-packshot', isCutout: true });
@@ -249,5 +253,57 @@ describe('catalogue photo: AI packshot when there is no official photo', () => {
     const id = imp.detections[0]!.catalogPhoto!.id;
     expect((await t.app.inject({ method: 'GET', url: `/v1/catalog-photos/${id}`, headers: b.auth })).statusCode).toBe(404);
     expect((await t.app.inject({ method: 'POST', url: `/v1/catalog-photos/${id}/choose`, headers: b.auth, payload: { choice: 'original' } })).statusCode).toBe(404);
+  });
+});
+
+describe('catalogue photo: garments found by the vision-language model (as Alta does)', () => {
+  it('imports each garment of the photo as one item with its shop name, and rebuilds a partly visible one whole', async () => {
+    const u = await registerUser(t);
+    await consent(u.auth, 'ai_image_generation');
+    catalogState.vlm = {
+      garments: [
+        { box: [0.03, 0, 0.9, 1], name: 'Red Hooded Sweatshirt', name_es: 'Sudadera con capucha roja', description: 'red cotton pullover hoodie with a dark grey lined hood, drawstrings and a kangaroo pocket', category: 'top', visible: 'partial' },
+        { box: [0.38, 0.63, 0.78, 1], name: 'Plaid Mini Skirt', name_es: 'Falda mini de cuadros', description: 'navy and red tartan pleated mini skirt', category: 'bottom', visible: 'whole' },
+      ],
+      identify: { name: 'Red Hoodie', category: 'top' },
+    };
+    catalogState.outputs = [await packshot(), await packshot()];
+    const up = multipart(await testImage(BLUE), { kind: 'garment_photo' });
+    const img = (await t.app.inject({ method: 'POST', url: '/v1/uploads', headers: { ...u.auth, ...up.headers }, payload: up.payload })).json();
+    const job = (await t.app.inject({ method: 'POST', url: '/v1/imports/photos', headers: u.auth, payload: { imageIds: [img.imageId], mode: 'multi', source: 'camera' } })).json();
+    await t.queue.drain();
+    const imp = (await t.app.inject({ method: 'GET', url: `/v1/imports/${job.id}`, headers: u.auth })).json();
+    expect(imp.detections).toHaveLength(2);
+    const [hoodie, skirt] = imp.detections;
+    expect(hoodie.predicted).toMatchObject({ subcategory: { value: 'sudadera' }, vlm: { nameEs: 'Sudadera con capucha roja', visible: 'partial' } });
+    // The classifier said "camiseta"; the model's name gives the type.
+    expect(skirt.predicted).toMatchObject({ category: { value: 'bottom' }, subcategory: { value: 'falda' }, vlm: { name: 'Plaid Mini Skirt' } });
+    expect(skirt.bbox).toEqual([0.38, 0.63, 0.78, 1]);
+    // The studio photo is made from the description of the complete garment, completing what is hidden.
+    const prompt = catalogState.prompts.find((p) => p.includes('red hooded sweatshirt'))!;
+    expect(prompt).toMatch(/: red cotton pullover hoodie with a dark grey lined hood, drawstrings and a kangaroo pocket\./);
+    expect(prompt).toMatch(/show the COMPLETE item/);
+    const cp = await getJob(u.auth, hoodie.catalogPhoto.id);
+    expect(cp.status).toBe('ready');
+    expect(cp.message).toMatch(/la hemos completado/);
+    // Accepting keeps the model's name.
+    const garment = (await t.app.inject({ method: 'POST', url: `/v1/imports/${imp.id}/detections/${skirt.id}/accept`, headers: u.auth, payload: {} })).json();
+    expect((await t.app.inject({ method: 'GET', url: `/v1/garments/${garment.id}`, headers: u.auth })).json()).toMatchObject({ name: 'Falda mini de cuadros', subcategory: 'falda' });
+  });
+  it('a studio photo that shows another kind of item is retried with a correction naming the garment', async () => {
+    const u = await registerUser(t);
+    await consent(u.auth, 'ai_image_generation');
+    catalogState.vlm = {
+      garments: [{ box: [0.1, 0.1, 0.9, 0.9], name: 'Black Pointed Toe Heels', name_es: 'Salones negros', description: 'black leather pointed-toe stiletto pumps', category: 'footwear', visible: 'whole' }],
+      identify: { name: 'Brown Leather Loafers', category: 'footwear' },
+    };
+    catalogState.outputs = [await packshot(), await packshot(), await packshot()];
+    const imp = await importPhoto(u.auth);
+    const cp = await getJob(u.auth, imp.detections[0]!.catalogPhoto!.id);
+    expect(cp.attempts).toHaveLength(3);
+    expect(cp.attempts[0].check).toMatchObject({ passed: false, fidelityPassed: false, reasons: expect.arrayContaining(['Muestra otra prenda (Brown Leather Loafers).']) });
+    expect(catalogState.prompts[1]).toMatch(/drew a different kind of item\. It must be exactly this black pointed toe heels/);
+    expect(cp.status).toBe('needs_user');
+    expect(cp.message).toMatch(/Muestra otra prenda \(Brown Leather Loafers\)/);
   });
 });

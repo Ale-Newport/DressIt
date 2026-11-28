@@ -105,6 +105,9 @@ class Settings:
     cutout_max_side: int = 1024
     cutout_padding: float = 0.04
     segmenter: str = "isnet-general-use"
+    # Cutout of a generated studio photo (one item on plain light grey): BiRefNet lite (MIT) keeps
+    # white and cream garments that IS-Net drops against a light background.
+    studio_matte: str = "birefnet-general-lite"
     embedding_model: str = "Marqo/marqo-fashionSigLIP"
     detector_model: str = "IDEA-Research/grounding-dino-tiny"
     # Softmax scale applied to cosine similarities (1 / temperature), calibrated on eval/.
@@ -158,6 +161,7 @@ class Settings:
             working_max_side=_env_int("VISION_WORKING_MAX_SIDE", d.working_max_side),
             cutout_max_side=_env_int("VISION_CUTOUT_MAX_SIDE", d.cutout_max_side),
             segmenter=_env_str("VISION_SEGMENTER", d.segmenter),
+            studio_matte=_env_str("VISION_STUDIO_MATTE", d.studio_matte),
             embedding_model=_env_str("VISION_EMBEDDING_MODEL", d.embedding_model),
             detector_model=_env_str("VISION_DETECTOR_MODEL", d.detector_model),
             logit_scale=_env_float("VISION_LOGIT_SCALE", d.logit_scale),

@@ -31,6 +31,21 @@ interface Predicted {
   styles?: Field<string[]>;
   seasons?: Field<string[]>;
   fit?: Field<string>;
+  vlm?: { name: string; nameEs: string; description: string; visible: 'whole' | 'partial'; category?: string };
+}
+
+/**
+ * The garment's name: the user's, or the vision-language model's shop-style name ("Sudadera con
+ * capucha roja", capitalised). Not the model's when the user corrected the type: it would name the
+ * type they just corrected (a "Bufanda de cuadros" saved as a skirt).
+ */
+export function acceptedName(p: Predicted, overrides: GarmentWriteDto): string | undefined {
+  const proposed = p.vlm?.nameEs?.trim();
+  const retyped = !!overrides.subcategory && overrides.subcategory !== p.subcategory?.value;
+  const own = overrides.name?.trim();
+  if (own && !(retyped && proposed && own.toLowerCase() === proposed.toLowerCase())) return own;
+  if (!proposed || retyped) return undefined;
+  return (proposed.charAt(0).toUpperCase() + proposed.slice(1)).slice(0, 80);
 }
 
 export async function createPhotoImport(ctx: AppContext, trx: Tx, userId: string, body: PhotoImportRequest): Promise<string> {
@@ -125,6 +140,7 @@ export async function acceptDetection(ctx: AppContext, trx: Tx, userId: string, 
     userId,
     {
       ...overrides,
+      name: acceptedName(p, overrides),
       subcategory,
       colors: overrides.colors ?? p.colors?.map((c) => ({ hex: c.hex, share: c.share })),
       pattern: overrides.pattern ?? p.pattern?.value ?? null,

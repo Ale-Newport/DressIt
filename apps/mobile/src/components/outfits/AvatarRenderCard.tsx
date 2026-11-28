@@ -10,12 +10,13 @@ import { baseLabel, METHOD_LABEL, progressText, progressValue } from '@/lib/avat
 import { radius, space, useTheme } from '@/theme';
 
 const ACTIVE = new Set(['queued', 'running']);
-type Method = 'sequential' | 'joint';
+type Method = 'fast' | 'sequential' | 'joint';
 
 /**
  * "Verme con este conjunto": a photo of the user wearing exactly this outfit, made from a saved
  * avatar image (their own full-body photo on a studio background, or a generated view).
  *
+ * - Rápido (fast): one pass of an image editor with the avatar photo and each garment's photo (~20 s).
  * - Probador (sequential): a dedicated try-on model dresses one garment at a time (bottom, top
  *   layers, jacket), then shoes and one accessory; each step is cached, so changing one garment
  *   only redoes what comes after it.
@@ -40,13 +41,14 @@ export function AvatarRenderCard({ outfit }: { outfit: OutfitDto }) {
   const done = jobs.data?.find((j) => j.status === 'done' && j.result);
   const hasGarments = outfit.items.some((i) => i.garment?.image);
   const bases = (profile.data?.bases ?? []).filter((b) => b.status === 'ready');
-  const methods: Method[] = [...(status.data.tryon ? (['sequential'] as const) : []), ...(profile.data?.face ? (['joint'] as const) : [])];
+  const methods: Method[] = [...(status.data.fast ? (['fast'] as const) : []), ...(status.data.tryon ? (['sequential'] as const) : []), ...(profile.data?.face ? (['joint'] as const) : [])];
   const chosenMethod: Method = method ?? methods[0] ?? 'sequential';
+  const usesBase = chosenMethod !== 'joint';
   const bodyReady = !!(profile.data?.body && profile.data.attestedSelf && profile.data.attestedAdult);
 
   const start = () =>
     create.mutate(
-      { method: chosenMethod, ...(chosenMethod === 'sequential' && baseId ? { baseId } : {}) },
+      { method: chosenMethod, ...(usesBase && baseId ? { baseId } : {}) },
       { onError: (e) => toast.show({ message: errorMessage(e), tone: 'error' }) },
     );
 
@@ -72,7 +74,11 @@ export function AvatarRenderCard({ outfit }: { outfit: OutfitDto }) {
           </Text>
           <ProgressBar value={progressValue(latest!)} testID="avatar-render-progress-bar" />
           <Text variant="caption" tone="muted">
-            {latest!.method === 'sequential' ? 'Cada prenda tarda 1–2 minutos. Puedes salir: seguirá en el servidor.' : 'Suele tardar 2–5 minutos. Puedes salir: seguirá en el servidor.'}
+            {latest!.method === 'fast'
+              ? 'Suele tardar menos de un minuto. Puedes salir: seguirá en el servidor.'
+              : latest!.method === 'sequential'
+                ? 'Cada prenda tarda 1–2 minutos. Puedes salir: seguirá en el servidor.'
+                : 'Suele tardar 2–5 minutos. Puedes salir: seguirá en el servidor.'}
           </Text>
         </View>
       ) : (
@@ -115,7 +121,7 @@ export function AvatarRenderCard({ outfit }: { outfit: OutfitDto }) {
               />
             </View>
           ) : null}
-          {chosenMethod === 'sequential' && bases.length > 1 ? (
+          {usesBase && bases.length > 1 ? (
             <View style={{ gap: space.xs }}>
               <Text variant="caption" tone="muted">
                 Imagen de tu avatar

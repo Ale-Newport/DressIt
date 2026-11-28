@@ -93,6 +93,9 @@ class StubBackend:
         )
         return mask.astype(np.float32) / 255.0
 
+    def matte_studio(self, image: Image.Image) -> np.ndarray:
+        return self.remove_background(image)
+
     def detect(
         self,
         image: Image.Image,

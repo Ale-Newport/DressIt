@@ -27,16 +27,18 @@ const schema = z.object({
   VISION_TIMEOUT_MS: z.coerce.number().default(120_000),
   // Image generation (catalogue packshots, avatar renders) through a ComfyUI server. Empty = disabled.
   IMAGEGEN_COMFY_URL: z.string().optional(),
+  /** Local studio-photo server without ComfyUI (services/imagegen/mlx, FLUX.2 klein in MLX). */
+  IMAGEGEN_MLX_URL: z.string().optional(),
   IMAGEGEN_TIMEOUT_MS: z.coerce.number().default(15 * 60_000),
   /** Workflow reported as the garment-photo model in GET /v1/generation/status (the catalogue packshot). */
-  IMAGEGEN_STUDIO_WORKFLOW: z.string().default('packshot'),
+  IMAGEGEN_STUDIO_WORKFLOW: z.string().default('packshot-fast'),
   IMAGEGEN_AVATAR_WORKFLOW: z.string().default('avatar'),
   // Dedicated try-on service (services/tryon). Empty = only the joint (generative) method.
   TRYON_SERVICE_URL: z.string().optional(),
   TRYON_STEPS: z.coerce.number().int().min(4).max(50).default(20),
   TRYON_TIMEOUT_MS: z.coerce.number().default(10 * 60_000),
   /** Default try-on method when both are available (chosen from the benchmark in docs/probador-virtual.md). */
-  AVATAR_METHOD: z.enum(['sequential', 'joint']).default('sequential'),
+  AVATAR_METHOD: z.enum(['fast', 'sequential', 'joint']).default('fast'),
   // Gate on the worn garments (Sapiens2 regions vs the real garment): calibrated in docs/probador-virtual.md.
   TRYON_MIN_SIMILARITY: z.coerce.number().default(0.6),
   TRYON_MAX_DELTA_E: z.coerce.number().default(15),
@@ -47,6 +49,15 @@ const schema = z.object({
   // --- Catalogue photo (docs/foto-catalogo.md): reverse image search first, generative packshot second.
   /** Start the catalogue photo of every new detection automatically (false: only on request). */
   CATALOG_PHOTO_AUTO: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || v === 'true' || v === '1'),
+  /**
+   * Import detection by the local vision-language model (IMAGEGEN_MLX_URL): it finds and describes each
+   * garment as ONE item in the whole photo and the vision service segments its boxes; the vision
+   * detector is used when it is off or unavailable.
+   */
+  IMPORT_VLM_DETECTION: z
     .string()
     .optional()
     .transform((v) => v === undefined || v === 'true' || v === '1'),
@@ -70,7 +81,7 @@ const schema = z.object({
    *  reference from the store (never copied, with attribution); none = only used to identify the product. */
   OFFICIAL_PHOTO_WEB_IMAGES: z.enum(['link_preview', 'none']).default('link_preview'),
   /** Generators in order of preference; the first configured is primary, the next ones fallbacks. */
-  PACKSHOT_PROVIDERS: z.string().default('fashn,fal,comfy'),
+  PACKSHOT_PROVIDERS: z.string().default('fashn,fal,mlx'),
   /** FASHN Agent Images (https://docs.fashn.ai/api-reference/agent-images). */
   FASHN_API_KEY: z.string().optional(),
   FASHN_GENERATION_MODE: z.enum(['fast', 'balanced', 'quality']).default('balanced'),
@@ -82,6 +93,14 @@ const schema = z.object({
   FAL_COST_CENTS: z.coerce.number().default(3.5),
   /** ComfyUI workflow (IMAGEGEN_COMFY_URL) for the local/self-hosted packshot. */
   IMAGEGEN_PACKSHOT_WORKFLOW: z.string().default('packshot'),
+  /** `studio`: studio photo from the original, light grey background, cutout afterwards (2026-11-25); `packshot`: the earlier white packshot prompt. */
+  CATALOG_STUDIO_PROMPT: z.enum(['studio', 'packshot']).default('studio'),
+  /**
+   * Daily generation attempts per user on this server's own free generators (MLX, ComfyUI): enough to
+   * import a whole wardrobe at once (~100 garments with retries) while keeping one user from
+   * monopolising the GPU. Paid providers are bounded by CATALOG_DAILY_GENERATIONS_PER_USER.
+   */
+  CATALOG_DAILY_LOCAL_GENERATIONS_PER_USER: z.coerce.number().int().min(1).default(300),
   PACKSHOT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(3),
   PACKSHOT_TIMEOUT_MS: z.coerce.number().default(15 * 60_000),
   /** Cost control: per-user daily limits and a monthly budget (cents) for all paid providers together. */

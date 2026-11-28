@@ -54,7 +54,9 @@ export function CatalogPhotoCard({ garment }: { garment: GarmentDetailDto }) {
     );
   const current: Choice | null = j?.choice ?? null;
   const generatedOk = !!j?.generatedCheck?.passed;
-  const insufficient = j?.status === 'needs_user' && !j.attempts.length && !j.generated && /foto/.test(j.message ?? '') && /(cortada|pequeña)/.test(j.message ?? '');
+  // The API asked for another photo instead of generating (garment cut by the frame or tiny, or, in a
+  // photo with several garments, not seen whole / not clothing): offer "Generar de todos modos" (force).
+  const insufficient = j?.status === 'needs_user' && !j.attempts.length && !j.generated && /foto/.test(j.message ?? '') && /(cortada|pequeña|no se ve entera|no parece una prenda)/.test(j.message ?? '');
 
   return (
     <Card testID="catalog-photo-card">

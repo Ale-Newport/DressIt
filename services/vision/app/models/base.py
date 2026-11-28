@@ -41,6 +41,11 @@ class VisionBackend(Protocol):
     def remove_background(self, image: Image.Image) -> np.ndarray:
         """Foreground probability ``(H, W)`` float32 in [0, 1] for the salient object(s)."""
 
+    def matte_studio(self, image: Image.Image) -> np.ndarray:
+        """Foreground probability ``(H, W)`` for a studio photo (one item on a plain background).
+        Backends with a dedicated matting model override it; by default, background removal."""
+        return self.remove_background(image)
+
     def detect(
         self,
         image: Image.Image,

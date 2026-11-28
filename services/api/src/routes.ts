@@ -445,7 +445,7 @@ export async function routes(app: FastifyInstance, ctx: AppContext, requireAuth:
   );
   app.post('/v1/outfits/:id/avatar', { ...authed, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
     const outfitId = parse(uuid, (req.params as { id: string }).id);
-    const opts = parse(z.object({ baseId: uuid.optional(), method: z.enum(['sequential', 'joint']).optional() }), req.body ?? {});
+    const opts = parse(z.object({ baseId: uuid.optional(), method: z.enum(['fast', 'sequential', 'joint']).optional() }), req.body ?? {});
     const id = await withUser(ctx.db, req.userId, (trx) => imagegen.createAvatarJob(ctx, trx, req.userId, outfitId, opts));
     await ctx.queue.enqueueGeneration({ generationId: id, userId: req.userId });
     reply.status(202);

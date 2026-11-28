@@ -190,6 +190,39 @@ def _from_detections(
     return kept
 
 
+def _from_boxes(
+    backend: VisionBackend,
+    settings: Settings,
+    region: Image.Image,
+    boxes: list[tuple[int, tuple[float, float, float, float], str]],
+) -> list[Candidate]:
+    """Garments located by someone else (a vision-language model that already decided what each item
+    is): every box is segmented with SAM, in the given order, and none is filtered as "not a garment".
+    ``boxes``: (index, box in region pixels, category hint)."""
+    if not boxes:
+        return []
+    probs = backend.segment_boxes(region, [b for _, b, _ in boxes])
+    out: list[Candidate] = []
+    for (idx, box, category), prob in zip(boxes, probs):
+        x0, y0, x1, y1 = (int(round(v)) for v in box)
+        pad = int(0.03 * max(x1 - x0, y1 - y0))
+        gate = np.zeros(prob.shape, dtype=bool)
+        gate[max(0, y0 - pad) : y1 + pad, max(0, x0 - pad) : x1 + pad] = True
+        prob = np.where(gate, prob, 0.0).astype(np.float32)
+        # A pair (shoes, socks, gloves) is two blobs in one box: keep both.
+        mask = clean_mask(
+            prob, keep_ratio=0.25 if category in {"footwear", "accessory"} else 0.5
+        )
+        if mask.sum() < MIN_MASK_FRAC * mask.size:
+            continue
+        out.append(
+            Candidate(
+                prob=prob, mask=mask, det=Detection(box=box, score=1.0, label=f"#{idx}")
+            )
+        )
+    return out
+
+
 def _cat(c: Candidate) -> str | None:
     cat = c.attrs.get("category")
     return cat["value"] if cat else None
@@ -339,7 +372,11 @@ def analyze_image(
     max_items: int,
     backend: VisionBackend,
     settings: Settings,
+    boxes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """``boxes`` (optional): garments already located by a vision-language model, ``[{"box": [x0, y0,
+    x1, y1] (0–1 of the whole image), "category": str}]``. They replace the detector, every one is
+    returned (in order, with its ``box_index``) unless its mask is empty."""
     timer = Timer()
     th = settings.thresholds
     with timer.stage("decode"):
@@ -384,18 +421,39 @@ def analyze_image(
     )
 
     cands: list[Candidate] = []
-    use_detector = alpha is None and (
-        mode == "multi"
-        or (
-            scene is not None
-            and scene["value"] in {"worn", "multiple"}
-            and scene["confidence"] >= SCENE_MIN_CONFIDENCE
+    external = boxes is not None
+    if external:
+        located: list[tuple[int, tuple[float, float, float, float], str]] = []
+        for i, b in enumerate(boxes or []):
+            bx = b.get("box") or []
+            if len(bx) != 4:
+                continue
+            px = (
+                min(rw, max(0.0, bx[0] * work_w - cx0)),
+                min(rh, max(0.0, bx[1] * work_h - cy0)),
+                min(rw, max(0.0, bx[2] * work_w - cx0)),
+                min(rh, max(0.0, bx[3] * work_h - cy0)),
+            )
+            if px[2] - px[0] >= 4 and px[3] - px[1] >= 4:
+                located.append((i, px, str(b.get("category") or "")))
+        with timer.stage("segment_boxes"):
+            cands = _from_boxes(backend, settings, region, located)
+    use_detector = (
+        not external
+        and alpha is None
+        and (
+            mode == "multi"
+            or (
+                scene is not None
+                and scene["value"] in {"worn", "multiple"}
+                and scene["confidence"] >= SCENE_MIN_CONFIDENCE
+            )
         )
     )
     if use_detector:
         with timer.stage("detect_segment"):
             cands = _from_detections(backend, settings, region, max_items)
-    if mode == "single" and not cands:
+    if mode == "single" and not cands and not external:
         proposals: Future[list[Proposal]] | None = None
         with timer.stage("background_removal"):
             if (
@@ -436,7 +494,9 @@ def analyze_image(
             cands = [c for c in cands if not c.modified or c in changed]
             _embed_and_classify(changed, backend, settings, worn)
 
-    if mode == "single" and len(cands) > 1:
+    if external:
+        pass  # the caller chose these items; keep them all, in its order
+    elif mode == "single" and len(cands) > 1:
         cands = [max(cands, key=lambda c: _main_score(c, rw, rh))]
     elif mode == "multi":
         cands = [c for c in cands if _keep_in_multi(c, th)]
@@ -509,6 +569,9 @@ def analyze_image(
                     "upright_rotation": rotations.get(id(c), 0.0),
                     "mask_area_ratio": round(mask_area_ratio, 4),
                     "detection_score": round(float(c.det.score), 4) if c.det else None,
+                    "box_index": int(c.det.label[1:])
+                    if external and c.det and c.det.label.startswith("#")
+                    else None,
                     "category": c.attrs["category"],
                     "subcategory": c.attrs["subcategory"],
                     "colors": colors,

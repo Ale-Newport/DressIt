@@ -37,14 +37,21 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from ..colors import delta_e2000, extract_colors, rgb_to_lab
+from ..colors import delta_e2000, extract_colors, lab_to_rgb, rgb_to_lab
 from ..config import Settings
 from ..imaging import composite_on_white, decode_image, pad_to_square, resize_max_side
 from ..models.base import VisionBackend
 from ..prompts import SUBCATEGORY_PROMPTS
 from .analyze import analyze_image
 from .classify import classify_embeddings, get_heads
-from .masks import embedding_view, upright_angle
+from .masks import (
+    clean_mask,
+    decontaminate_cutout,
+    embedding_view,
+    make_cutout,
+    mask_bbox,
+    upright_angle,
+)
 
 # Categories whose product presentation is symmetric about a vertical axis.
 SYMMETRIC = {"top", "bottom", "one_piece", "outerwear"}
@@ -63,6 +70,24 @@ class CatalogLimits:
     min_background_l: float = 84.0  # mean L* of the border ring
     max_background_l_std: float = 9.0
     max_background_chroma: float = 10.0
+    # A studio photo (kind="studio") is only an intermediate step: its plain light grey background
+    # is removed afterwards, so it may be greyer and carry a soft light gradient, but no texture.
+    studio_min_background_l: float = 60.0
+    studio_max_background_l_std: float = 12.0
+    # The generator, not a home photo, sets the arrangement and renders the fabric: in the blind review
+    # of 2026-11-25, texture, symmetry and "neatness" failures only ever rejected images judged usable
+    # (a straw hat's weave, jeans on a hanger), so they are looser for studio photos.
+    studio_max_texture_chi2: float = 0.5
+    studio_min_symmetry: float = 0.84
+    studio_min_neat: float = 0.35
+    # The vision-language model now checks the kind of item, so the embedding only has to rule out a
+    # different garment (same garment re-arranged: 0.73–0.93; different: 0.42–0.68).
+    studio_min_similarity: float = 0.62
+    # Part of the garment was hidden in the user's photo (worn, covered, cut): its cutout also holds
+    # skin, other clothes or background, and misses whole areas, so it cannot demand the same main
+    # colours or the same pattern, only a close overall palette.
+    partial_min_similarity: float = 0.55
+    partial_max_palette_emd: float = 18.0
     min_margin: float = 0.008  # garment must not touch the frame (fraction of the side)
     min_extent: float = (
         0.42  # bbox long side / image side: not a tiny item in a big frame
@@ -576,6 +601,252 @@ def _value(field_: dict[str, Any] | None) -> str | None:
     return field_.get("value") if isinstance(field_, dict) else None
 
 
+# Colour match of a studio photo to the real garment (see match_garment_colour).
+DARK_REFERENCE_MAX_L = (
+    42.0  # only garments this dark get darkened (mid tones vary with the photo's light)
+)
+MIN_DARKEN_GAP = 6.0
+MAX_DARKEN_GAMMA = 2.5
+MIN_LIGHTEN_GAP = (
+    15.0  # the generator drew it much darker than the photo (mid-blue jeans → black)
+)
+MAX_LIGHTEN_REFERENCE_L = 75.0
+MIN_LIGHTEN_GAMMA = 0.6
+COLOURFUL_CHROMA = 12.0  # median chroma above which a garment's hue is corrected
+CHROMA_BLEND = 0.8
+MAX_AB_SHIFT = 25.0
+
+
+def match_garment_colour(
+    cutout: Image.Image, reference: Image.Image
+) -> tuple[Image.Image, dict[str, float]]:
+    """Brings a generated studio cutout back to the colour of the real garment (its cutout from the
+    user's photo), in CIELAB, on the garment's pixels only:
+
+    * lightness: a curve L' = 100·(L/100)^γ that maps the body lightness (30th percentile of L*, which
+      ignores highlights, logos and white trims) of the generated garment onto the reference. It
+      darkens dark garments the small model lit up (a black polo → grey) and lightens coloured
+      garments it drew much darker (faded mid-blue jeans → near black); mid tones within 15 L* are
+      left alone, since the photo's light varies more than that, and neutral garments are never
+      lightened (flash makes black look grey in the photo).
+    * hue and saturation, only for clearly coloured garments: the a*/b* mean moves 80 % of the way to
+      the reference (at most 25) and the spread is matched (×0.7–1.5), so a cobalt puffer drawn steel
+      blue gets its saturation back. Neutral garments (black, grey, white) keep their a*/b*: a home
+      photo's warm light must not tint them.
+    """
+    arr = np.asarray(cutout.convert("RGBA")).copy()
+    ref = np.asarray(reference.convert("RGBA"))
+    gen_mask = arr[..., 3] > 200
+    ref_px = ref[ref[..., 3] > 200][:, :3]
+    info = {"gamma": 1.0, "a_shift": 0.0, "b_shift": 0.0}
+    if gen_mask.sum() < 400 or ref_px.shape[0] < 400:
+        return cutout, info
+    if ref_px.shape[0] > 60000:
+        ref_px = ref_px[:: ref_px.shape[0] // 60000]
+    ref_lab = rgb_to_lab(ref_px.astype(np.float64))
+    lab = rgb_to_lab(arr[..., :3].astype(np.float64))
+    g = lab[gen_mask]  # statistics from the opaque body…
+    paint = (
+        arr[..., 3] > 0
+    )  # …applied to every visible pixel, soft edge included (no old-colour rim)
+    p = lab[paint]
+    r_l, g_l = (
+        float(np.percentile(ref_lab[:, 0], 30)),
+        float(np.percentile(g[:, 0], 30)),
+    )
+    ref_chroma = float(np.median(np.hypot(ref_lab[:, 1], ref_lab[:, 2])))
+    colourful = ref_chroma >= COLOURFUL_CHROMA
+    gamma = 1.0
+    if 0 < g_l < 100 and 0 < r_l < 100:
+        exact = float(np.log(r_l / 100) / np.log(g_l / 100))
+        if r_l <= DARK_REFERENCE_MAX_L and g_l - r_l >= MIN_DARKEN_GAP:
+            gamma = min(MAX_DARKEN_GAMMA, exact)
+        elif (
+            colourful
+            and r_l - g_l >= MIN_LIGHTEN_GAP
+            and r_l <= MAX_LIGHTEN_REFERENCE_L
+        ):
+            # Only coloured garments: a black one shot with flash measures grey in the photo, and
+            # lightening the (correctly black) studio photo to that grey made it worse.
+            gamma = max(MIN_LIGHTEN_GAMMA, exact)
+    if gamma != 1.0:
+        p[:, 0] = 100.0 * (np.clip(p[:, 0], 0, 100) / 100.0) ** gamma
+    if colourful:
+        # Only the coloured parts are compared and moved: a red hoodie's grey hood lining or a white
+        # trim must not be tinted by the red's correction (each pixel weighs by its own chroma).
+        g_col = g[np.hypot(g[:, 1], g[:, 2]) >= COLOURFUL_CHROMA]
+        r_col = ref_lab[np.hypot(ref_lab[:, 1], ref_lab[:, 2]) >= COLOURFUL_CHROMA]
+        if g_col.shape[0] >= 200 and r_col.shape[0] >= 200:
+            weight = np.clip((np.hypot(p[:, 1], p[:, 2]) - 6.0) / 12.0, 0.0, 1.0)
+            for ch, key in ((1, "a_shift"), (2, "b_shift")):
+                gm, gs = float(g_col[:, ch].mean()), float(g_col[:, ch].std()) or 1.0
+                rm, rs = float(r_col[:, ch].mean()), float(r_col[:, ch].std()) or 1.0
+                shift = float(
+                    np.clip(CHROMA_BLEND * (rm - gm), -MAX_AB_SHIFT, MAX_AB_SHIFT)
+                )
+                k = float(np.clip(rs / gs, 0.7, 1.5))
+                moved = (p[:, ch] - gm) * (1 + CHROMA_BLEND * (k - 1)) + gm + shift
+                p[:, ch] = p[:, ch] + weight * (moved - p[:, ch])
+                info[key] = round(shift, 2)
+    info["gamma"] = round(gamma, 3)
+    if gamma == 1.0 and not (info["a_shift"] or info["b_shift"]):
+        return cutout, info
+    arr[..., :3][paint] = np.clip(np.round(lab_to_rgb(p)), 0, 255).astype(np.uint8)
+    return Image.fromarray(arr, "RGBA"), info
+
+
+def _check_studio(
+    reference: Image.Image,
+    candidate_bytes: bytes,
+    *,
+    category: str | None,
+    subcategory: str | None,
+    backend: VisionBackend,
+    settings: Settings,
+    ocr: bool,
+    limits: CatalogLimits,
+    colour_fix: bool = True,
+    partial: bool = False,
+) -> CatalogCheck:
+    """A generated studio photo: one item on a plain light grey background. The cutout comes from a
+    matting model on the whole image (no detector: there is only one item) and is what the user
+    gets, so presentation (except the background) and fidelity are judged on that cutout, after its
+    colour is matched to the real garment (``colour_fix``)."""
+    s = dataclasses.replace(settings, normalize_cutout=False, upright_correction=False)
+    decoded = decode_image(candidate_bytes)
+    full, _ = resize_max_side(decoded.rgb, 1024)
+    full = full.convert("RGB")
+    rgb = np.asarray(full)
+    h, w = rgb.shape[:2]
+    alpha = np.clip(backend.matte_studio(full), 0.0, 1.0)
+    # As for user photos: specks (dust, a vignette corner) and faint haze (a contact shadow) must not
+    # set the frame or reach the user's catalogue photo, and edges lose the grey background's halo.
+    hard = clean_mask(alpha, 0.5)
+    box = mask_bbox(hard)
+    if box is None or hard.sum() < 0.01 * h * w:
+        return _no_garment(
+            reference, rgb, category, backend, full, subcategory, settings, limits
+        )
+    x0, y0, x1, y1 = box
+    mask_full = np.zeros((h, w), bool)
+    mask_full[y0:y1, x0:x1] = True
+    cutout = decontaminate_cutout(
+        make_cutout(
+            rgb,
+            alpha,
+            hard,
+            box,
+            padding=settings.cutout_padding,
+            max_side=settings.cutout_max_side,
+        )
+    )
+    # Not for a garment seen only in part: its reference also holds skin and other clothes, and matching
+    # to it would tint the studio photo with them.
+    if colour_fix and not partial:
+        cutout, _ = match_garment_colour(cutout, reference)
+    ref_emb, cand_emb = backend.embed_images(
+        [embedding_view(reference), embedding_view(cutout)]
+    )
+    heads = get_heads(backend, settings)
+    ref_attrs, cand_attrs = classify_embeddings(
+        heads, np.stack([ref_emb, cand_emb]), settings.thresholds, worn=False
+    )
+    noun = _garment_noun(subcategory, category)
+    # On white, as the user will see it: the zero-shot "packshot" prompts describe a white background.
+    probs = presentation_probs(
+        backend, composite_on_white(cutout), noun, settings.logit_scale
+    )
+    studio_limits = dataclasses.replace(
+        limits,
+        min_background_l=limits.studio_min_background_l,
+        max_background_l_std=limits.studio_max_background_l_std,
+        max_texture_chi2=limits.studio_max_texture_chi2,
+        min_symmetry=limits.studio_min_symmetry,
+        min_neat=limits.studio_min_neat,
+        min_similarity=limits.studio_min_similarity,
+    )
+    if partial:
+        studio_limits = dataclasses.replace(
+            studio_limits,
+            min_similarity=limits.partial_min_similarity,
+            max_palette_emd=limits.partial_max_palette_emd,
+            max_missing_delta_e=1e9,  # no main colour is "lost" or "added"
+        )
+    cand_category = _value(cand_attrs.get("category"))
+    pres = judge_presentation(
+        rgb,
+        mask_full,
+        np.asarray(cutout.getchannel("A")),
+        category or cand_category,
+        probs,
+        studio_limits,
+    )
+    extra = added_garments(candidate_bytes, category or cand_category, backend, s)
+    if extra:
+        pres.passed = False
+        pres.reasons.append(
+            f"Ha añadido otra prenda que no está en tu foto ({', '.join(extra)})."
+        )
+        pres.codes.append("extra_garment")
+    similarity = float(
+        np.dot(ref_emb, cand_emb)
+        / max(np.linalg.norm(ref_emb) * np.linalg.norm(cand_emb), 1e-12)
+    )
+    ref_text: list[str] = []
+    cand_text: list[str] = []
+    if ocr:
+        ref_text = text_tokens(backend.ocr(composite_on_white(reference)))
+        if ref_text:
+            cand_text = text_tokens(backend.ocr(composite_on_white(cutout)))
+    fid = judge_fidelity(
+        similarity=similarity,
+        category=cand_category,
+        expected_category=category,
+        subcategory=_value(cand_attrs.get("subcategory")),
+        pattern=_value(cand_attrs.get("pattern")),
+        reference_pattern=None if partial else _value(ref_attrs.get("pattern")),
+        ref_palette=palette(reference),
+        cand_palette=palette(cutout),
+        lightness_shift=median_lightness(cutout) - median_lightness(reference),
+        texture=chi2(texture_hist(reference), texture_hist(cutout)),
+        ref_text=ref_text,
+        cand_text=cand_text,
+        limits=studio_limits,
+    )
+    buf = io.BytesIO()
+    cutout.save(buf, format="PNG")
+    box = [round(x0 / w, 4), round(y0 / h, 4), round(x1 / w, 4), round(y1 / h, 4)]
+    return CatalogCheck(pres, fid, box, base64.b64encode(buf.getvalue()).decode())
+
+
+def _no_garment(
+    reference: Image.Image,
+    rgb: np.ndarray,
+    category: str | None,
+    backend: VisionBackend,
+    full: Image.Image,
+    subcategory: str | None,
+    settings: Settings,
+    limits: CatalogLimits,
+) -> CatalogCheck:
+    h, w = rgb.shape[:2]
+    probs = presentation_probs(
+        backend, full, _garment_noun(subcategory, category), settings.logit_scale
+    )
+    empty_p = judge_presentation(
+        rgb, np.zeros((h, w), bool), np.zeros((1, 1), np.uint8), category, probs, limits
+    )
+    empty_p.passed = False
+    empty_p.reasons.append("No se distingue ninguna prenda en la imagen.")
+    empty_p.codes.append("no_garment")
+    empty_f = judge_fidelity(
+        similarity=0.0, category=None, expected_category=category, subcategory=None, pattern=None,
+        reference_pattern=None, ref_palette=palette(reference), cand_palette=[], lightness_shift=0.0, texture=1.0,
+        ref_text=[], cand_text=[], limits=limits,
+    )  # fmt: skip
+    return CatalogCheck(empty_p, empty_f, [0, 0, 0, 0], None)
+
+
 def check_catalog_photo(
     reference: Image.Image,
     candidate_bytes: bytes,
@@ -587,10 +858,19 @@ def check_catalog_photo(
     settings: Settings,
     ocr: bool = False,
     limits: CatalogLimits | None = None,
+    colour_fix: bool = True,
+    partial: bool = False,
 ) -> CatalogCheck:
-    """``kind``: ``generated`` (a packshot made from the user's photo) or ``official`` (a store photo,
-    possibly worn by a model: the garment of ``category`` is picked among the detected items)."""
+    """``kind``: ``generated`` (a packshot made from the user's photo), ``studio`` (a studio photo
+    made from it, cut out here afterwards) or ``official`` (a store photo, possibly worn by a model:
+    the garment of ``category`` is picked among the detected items)."""
     limits = limits or CatalogLimits()
+    if kind == "studio":
+        return _check_studio(
+            reference, candidate_bytes, category=category, subcategory=subcategory,
+            backend=backend, settings=settings, ocr=ocr, limits=limits, colour_fix=colour_fix,
+        partial=partial,
+        )  # fmt: skip
     # The candidate keeps its pixels and orientation: no colour normalisation (it is already a
     # product photo) and no upright correction (a tilted packshot must be caught, not fixed).
     s = dataclasses.replace(settings, normalize_cutout=False, upright_correction=False)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ComfyClient, fillWorkflow, loadWorkflow } from '../../src/modules/imagegen/comfy.ts';
 import { avatarFidelity, cosine } from '../../src/modules/imagegen/service.ts';
+import { workflowCanvas } from '../../src/modules/imagegen/generator.ts';
 import { maskFor, sequentialPlan, stepKey, wornFidelity } from '../../src/modules/imagegen/avatar.ts';
 
 const unit = (i: number, n = 8) => Array.from({ length: n }, (_, k) => (k === i ? 1 : 0));
@@ -15,7 +16,7 @@ describe('avatar fidelity gate', () => {
 });
 
 describe('ComfyUI workflows', () => {
-  for (const name of ['packshot', 'avatar', 'avatar-fast']) {
+  for (const name of ['packshot', 'packshot-fast', 'avatar', 'avatar-fast']) {
     it(`${name}: fills every placeholder with the right types`, () => {
       const values = { INPUT_IMAGE: 'in.png', FACE_IMAGE: 'f.jpg', BODY_IMAGE: 'b.jpg', OUTFIT_IMAGE: 'o.png', DESCRIPTION: 'jersey, camel', PROMPT: 'Transform…', SEED: 42, WIDTH: 896, HEIGHT: 1120 };
       const wf = fillWorkflow(loadWorkflow(name), values);
@@ -28,6 +29,14 @@ describe('ComfyUI workflows', () => {
       for (const node of Object.values(wf)) for (const v of Object.values(node.inputs)) if (Array.isArray(v) && typeof v[0] === 'string') expect(wf[v[0]]).toBeDefined();
     });
   }
+  it('packshot-fast: fp16 compute, its own canvas, and no Qwen negative encoder pass', () => {
+    const fast = loadWorkflow('packshot-fast');
+    expect(Object.values(fast).find((n) => n.class_type === 'ModelComputeDtype')?.inputs.dtype).toBe('fp16');
+    expect(workflowCanvas('packshot-fast')).toEqual({ width: 832, height: 1040 });
+    expect(workflowCanvas('packshot')).toBeNull();
+    // cfg 1.0: the negative of the Qwen workflows is a zeroed copy, not a second 7B encoder pass.
+    expect(Object.values(loadWorkflow('packshot')).filter((n) => n.class_type === 'TextEncodeQwenImageEditPlus')).toHaveLength(1);
+  });
   it('refuses missing values and unsafe names', () => {
     expect(() => fillWorkflow(loadWorkflow('packshot'), { INPUT_IMAGE: 'x' })).toThrow(/Faltan valores/);
     expect(() => loadWorkflow('../secrets')).toThrow();
@@ -42,6 +51,32 @@ describe('what the avatar shows', () => {
     expect(shown.map((i) => i.slot)).toEqual(['outer', 'bottom', 'footwear', 'accessory:head']);
     expect(layered.map((i) => i.slot)).toEqual(['mid', 'base']);
     expect(visibleForAvatar([{ slot: 'one_piece' }, { slot: 'footwear' }]).shown.map((i) => i.slot)).toEqual(['one_piece', 'footwear']);
+  });
+});
+
+describe('fast one-pass try-on', () => {
+  it('shows at most 4 pieces: outer layer, an inner layer under it, bottom and shoes', async () => {
+    const { piecesForFastRender } = await import('../../src/modules/imagegen/service.ts');
+    const slots = (xs: string[]) => piecesForFastRender(xs.map((slot) => ({ slot }))).map((i) => i.slot);
+    expect(slots(['outer', 'base', 'bottom', 'footwear'])).toEqual(['outer', 'base', 'bottom', 'footwear']);
+    expect(slots(['outer', 'mid', 'base', 'bottom', 'footwear', 'accessory:head'])).toEqual(['outer', 'bottom', 'footwear', 'accessory:head']);
+    expect(slots(['base', 'bottom'])).toEqual(['base', 'bottom']);
+  });
+  it('names each garment by its image and keeps the person as in their photo', async () => {
+    const { buildTryonPrompt } = await import('../../src/modules/imagegen/tryon-prompt.ts');
+    const p = buildTryonPrompt(['black polo shirt', 'plaid pleated skirt']);
+    expect(p).toMatch(/^The person from image 1 wearing this outfit: the black polo shirt shown in image 2; the plaid pleated skirt shown in image 3\. Take off every piece of clothing/);
+    expect(p).toMatch(/the same face and facial features, hairstyle and hair colour, skin tone, body shape/);
+  });
+  it('names where bottoms, dresses and coats end (jeans came out as knee shorts over leggings)', async () => {
+    const { tryonLabel } = await import('../../src/modules/imagegen/tryon-prompt.ts');
+    expect(tryonLabel('light blue denim jeans', 'full', 'bottom')).toBe('light blue denim jeans (full length, down to the ankles)');
+    expect(tryonLabel('denim shorts', 'upper-thigh', 'bottom')).toBe('denim shorts (very short, upper-thigh length)');
+    expect(tryonLabel('floral dress', 'midi', 'one_piece')).toBe('floral dress (midi length, below the knee)');
+    // Tops, shoes and unknown lengths keep their name.
+    expect(tryonLabel('white t-shirt', 'hip', 'top')).toBe('white t-shirt');
+    expect(tryonLabel('black polo', 'full', 'top')).toBe('black polo');
+    expect(tryonLabel('plaid skirt', null, 'bottom')).toBe('plaid skirt');
   });
 });
 

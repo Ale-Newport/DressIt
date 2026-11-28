@@ -44,24 +44,30 @@ import type { ImageGenerator } from '../imagegen/generator.ts';
 import { extractFromHtml } from '../retail/extract.ts';
 import type { CatalogCheckResult } from '../vision/client.ts';
 import { imageRef } from '../wardrobe/mappers.ts';
-import { createPackshotGenerators, GenerationError, type PackshotGenerator } from './generate.ts';
+import { attributesOf, createPackshotGenerators, GenerationError, MlxPackshot, type GarmentAttributes, type GarmentName, type PackshotGenerator, type StudioVerdict } from './generate.ts';
+import { fixDarkGarmentTone } from './tone.ts';
 import { judgeMatch, labelWords, mergeCandidates, recognise, textOnLabelMatches, type MergedCandidate, type Recognised } from './matching.ts';
-import { buildPackshotPrompt, type GarmentDescription } from './prompt.ts';
+import { buildPackshotPrompt, buildStudioPrompt, sameKindOfItem, type GarmentDescription } from './prompt.ts';
 import { CloudVisionWeb, LykdatSearch, SearchError, SerpApiLens, type SearchProvider, type WebCandidate } from './search.ts';
 
 export interface CatalogPhotoProviders {
   search: SearchProvider[];
   generators: PackshotGenerator[];
+  /** The local MLX server's vision-language model (detects, names and describes garments). */
+  vlm?: MlxPackshot;
 }
 
 export function createCatalogPhotoProviders(cfg: Config, imagegen: ImageGenerator, fetcher?: typeof fetch): CatalogPhotoProviders {
+  const generators = createPackshotGenerators(cfg, imagegen, fetcher);
   return {
     search: [
       new SerpApiLens({ apiKey: cfg.SERPAPI_API_KEY, country: cfg.SERPAPI_COUNTRY, hl: cfg.SERPAPI_HL, costCents: cfg.SERPAPI_COST_CENTS, fetcher }),
       new CloudVisionWeb({ apiKey: cfg.GOOGLE_CLOUD_VISION_API_KEY, costCents: cfg.GOOGLE_CLOUD_VISION_COST_CENTS, fetcher }),
       new LykdatSearch({ apiKey: cfg.LYKDAT_API_KEY, costCents: cfg.LYKDAT_COST_CENTS, fetcher }),
     ],
-    generators: createPackshotGenerators(cfg, imagegen, fetcher),
+    generators,
+    // The vision-language model (garment detection and names) whether or not MLX also generates.
+    vlm: generators.find((g): g is MlxPackshot => g instanceof MlxPackshot) ?? (cfg.IMAGEGEN_MLX_URL ? new MlxPackshot({ url: cfg.IMAGEGEN_MLX_URL, timeoutMs: cfg.PACKSHOT_TIMEOUT_MS, fetcher }) : undefined),
   };
 }
 
@@ -93,6 +99,8 @@ interface StoredMatch {
 
 interface StoredAttempt extends CatalogAttemptDto {
   codes: string[];
+  /** What the vision-language model saw differ from the user's photo (English, for diagnosis). */
+  problems?: string[];
   imageId?: string | null;
 }
 
@@ -102,6 +110,8 @@ interface GenerationState {
   model?: string | null;
   promptVersion?: string;
   skipped?: string | null;
+  /** The garment's name from the local vision-language model, used in the prompt. */
+  name?: GarmentName | null;
 }
 
 interface SearchState {
@@ -145,13 +155,15 @@ async function consent(trx: Tx, kind: string): Promise<boolean> {
 }
 
 /** Can this user spend one more paid call on `provider` today, within the monthly budget? */
-async function allowance(ctx: AppContext, trx: Tx, kind: 'search' | 'generation', costCents: number): Promise<string | null> {
+async function allowance(ctx: AppContext, trx: Tx, kind: 'search' | 'generation', costCents: number, local = false): Promise<string | null> {
   if (costCents > 0) {
     const spent = Number((await sql<{ c: string }>`select external_api_month_cost() as c`.execute(trx)).rows[0]?.c ?? 0);
     if (spent + costCents > ctx.cfg.CATALOG_MONTHLY_BUDGET_CENTS) return 'Se ha alcanzado el presupuesto mensual de este servicio.';
   }
-  const limit = kind === 'search' ? ctx.cfg.CATALOG_DAILY_SEARCHES_PER_USER : ctx.cfg.CATALOG_DAILY_GENERATIONS_PER_USER;
-  const providers = kind === 'search' ? ['serpapi_lens', 'cloud_vision', 'lykdat'] : ['fashn', 'fal', 'comfy'];
+  // Paid generators share the cost-control limit; this server's own free ones (MLX, ComfyUI) a larger
+  // one, so a whole wardrobe can be imported at once.
+  const limit = kind === 'search' ? ctx.cfg.CATALOG_DAILY_SEARCHES_PER_USER : local ? ctx.cfg.CATALOG_DAILY_LOCAL_GENERATIONS_PER_USER : ctx.cfg.CATALOG_DAILY_GENERATIONS_PER_USER;
+  const providers = kind === 'search' ? ['serpapi_lens', 'cloud_vision', 'lykdat'] : local ? ['mlx', 'comfy'] : ['fashn', 'fal'];
   const used = await trx.selectFrom('external_api_usage').select((eb) => eb.fn.coalesce(eb.fn.sum<number>('calls'), sql<number>`0`).as('n')).where('provider', 'in', providers).where('day', '=', sql<string>`current_date`).executeTakeFirst();
   if (Number(used?.n ?? 0) >= limit) return kind === 'search' ? 'Has llegado al límite diario de búsquedas de fotos oficiales.' : 'Has llegado al límite diario de fotos generadas.';
   return null;
@@ -535,6 +547,8 @@ interface Material {
   embedding: number[] | null;
   consents: { external: boolean; generation: boolean };
   multiInPhoto: boolean;
+  /** How the vision-language model saw this garment when it was imported (name, complete description, partly visible). */
+  vlm: { name: string; nameEs: string; description: string; visible: 'whole' | 'partial'; category?: string; attributes?: GarmentAttributes | null } | null;
 }
 
 async function loadMaterial(ctx: AppContext, userId: string, id: string): Promise<Material | null> {
@@ -562,6 +576,8 @@ async function loadMaterial(ctx: AppContext, userId: string, id: string): Promis
     }
     const siblings = await trx.selectFrom('import_detections').select('id').where('image_id', '=', job.source_image_id).execute();
     const bbox = (job.bbox as [number, number, number, number] | null) ?? null;
+    const det = job.detection_id ? await trx.selectFrom('import_detections').select('predicted').where('id', '=', job.detection_id).executeTakeFirst() : undefined;
+    const vlm = (det?.predicted as { vlm?: Material['vlm'] } | undefined)?.vlm ?? null;
     return {
       job,
       photo: photo.body,
@@ -571,18 +587,24 @@ async function loadMaterial(ctx: AppContext, userId: string, id: string): Promis
       // One garment in the photo: the generator sees the whole photo, so a part the background removal
       // missed (IS-Net sometimes drops outstretched sleeves) is not lost. Several garments: the region
       // of this one, with 8 % of context.
-      generatorInput: siblings.length > 1 ? await cropAround(photo.body, bbox) : await cropAround(photo.body, null),
+      generatorInput:
+        ctx.cfg.CATALOG_STUDIO_PROMPT === 'studio'
+          ? await studioInput(photo.body, bbox, siblings.length > 1)
+          : siblings.length > 1
+            ? await cropAround(photo.body, bbox)
+            : await cropAround(photo.body, null),
       bbox,
       desc,
       embedding,
       consents: { external: await consent(trx, 'visual_search_external'), generation: await consent(trx, 'ai_image_generation') },
       multiInPhoto: siblings.length > 1,
+      vlm: vlm?.name && vlm.description ? vlm : null,
     };
   });
 }
 
 /** The garment's region of the photo with 8 % context (what the generator and searches see). */
-export async function cropAround(photo: Buffer, bbox: [number, number, number, number] | null, maxSide = 1536): Promise<Buffer> {
+export async function cropAround(photo: Buffer, bbox: [number, number, number, number] | null, maxSide = 1536, context = 0.08): Promise<Buffer> {
   const img = sharp(photo).rotate();
   const meta = await img.metadata();
   const W = (meta.autoOrient?.width ?? meta.width) || 1;
@@ -590,13 +612,48 @@ export async function cropAround(photo: Buffer, bbox: [number, number, number, n
   let region = { left: 0, top: 0, width: W, height: H };
   if (bbox) {
     const [x0, y0, x1, y1] = bbox.every((v) => v <= 1.0001) ? [bbox[0] * W, bbox[1] * H, bbox[2] * W, bbox[3] * H] : bbox;
-    const pw = (x1 - x0) * 0.08;
-    const ph = (y1 - y0) * 0.08;
+    const pw = (x1 - x0) * context;
+    const ph = (y1 - y0) * context;
     const left = Math.max(0, Math.floor(x0 - pw));
     const top = Math.max(0, Math.floor(y0 - ph));
     region = { left, top, width: Math.max(1, Math.min(W, Math.ceil(x1 + pw)) - left), height: Math.max(1, Math.min(H, Math.ceil(y1 + ph)) - top) };
   }
   return sharp(photo).rotate().extract(region).resize(maxSide, maxSide, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer();
+}
+
+/**
+ * What the studio generator sees: the whole photo when it holds one garment (nothing the detector
+ * missed is lost); with several, this garment's region with 20 % context on each side (so the target
+ * sits in the centre, which the prompt names, with enough surroundings to read its shape and light).
+ */
+export async function studioInput(photo: Buffer, bbox: [number, number, number, number] | null, multi: boolean): Promise<Buffer> {
+  if (!multi || !bbox) return cropAround(photo, null);
+  return cropAround(photo, bbox, 1536, 0.2);
+}
+
+/**
+ * What the garment namer sees: the same view as the generator, with the detected garment inside a red
+ * rectangle. A small vision-language model then names the right item even when the crop shows several
+ * (a dress under a jacket, a skirt under a top), which it does not when only told "the centre item".
+ */
+export async function markGarment(photo: Buffer, bbox: [number, number, number, number] | null, multi: boolean, maxSide = 1024): Promise<Buffer> {
+  const meta = await sharp(photo).rotate().metadata();
+  const W = (meta.autoOrient?.width ?? meta.width) || 1;
+  const H = (meta.autoOrient?.height ?? meta.height) || 1;
+  if (!bbox) return sharp(photo).rotate().resize(maxSide, maxSide, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
+  const [x0, y0, x1, y1] = bbox.every((v) => v <= 1.0001) ? [bbox[0] * W, bbox[1] * H, bbox[2] * W, bbox[3] * H] : bbox;
+  let region = { left: 0, top: 0, width: W, height: H };
+  if (multi) {
+    const pw = (x1 - x0) * 0.2;
+    const ph = (y1 - y0) * 0.2;
+    const left = Math.max(0, Math.floor(x0 - pw));
+    const top = Math.max(0, Math.floor(y0 - ph));
+    region = { left, top, width: Math.max(1, Math.min(W, Math.ceil(x1 + pw)) - left), height: Math.max(1, Math.min(H, Math.ceil(y1 + ph)) - top) };
+  }
+  const stroke = Math.max(3, Math.round(Math.max(region.width, region.height) / 150));
+  const rect = `<svg xmlns="http://www.w3.org/2000/svg" width="${region.width}" height="${region.height}"><rect x="${x0 - region.left}" y="${y0 - region.top}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="#ff0000" stroke-width="${stroke}"/></svg>`;
+  const marked = await sharp(photo).rotate().extract(region).composite([{ input: Buffer.from(rect) }]).png().toBuffer();
+  return sharp(marked).resize(maxSide, maxSide, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
 }
 
 /**
@@ -865,6 +922,84 @@ async function storePackshot(ctx: AppContext, userId: string, jobId: string, m: 
   });
 }
 
+/** The instruction for the generator: studio photo first (default) or the earlier white packshot. */
+function studioPrompt(ctx: AppContext, desc: GarmentDescription, multi: boolean, corrections: string[] = [], name: GarmentName | null = null, description: string | null = null, partial = false, fixes: string[] = [], traits: { length?: string | null; topHandle?: boolean | null } = {}) {
+  if (ctx.cfg.CATALOG_STUDIO_PROMPT === 'studio') return buildStudioPrompt(desc, { multi, corrections, name, description, partial, fixes, ...traits });
+  const prompt = buildPackshotPrompt(desc, corrections);
+  if (multi) prompt.prompt += ' The photograph shows several items: use ONLY this garment and ignore the others.';
+  return prompt;
+}
+
+const CATEGORIES = new Set(['top', 'bottom', 'one_piece', 'outerwear', 'footwear', 'accessory']);
+
+/**
+ * Why a detected region is not rebuilt, from the namer's answer; null when it is. Only something that
+ * is not clothing: a garment seen in part is completed from its description (see `partial`).
+ */
+export function unclearDetection(name: GarmentName): string | null {
+  if (name.category === 'not_clothing') return 'Esto no parece una prenda ni un complemento. Si lo es, haz una foto de ella sola.';
+  return null;
+}
+
+/**
+ * What the check compares against. A studio photo is checked as such (cut out after generation, its
+ * grey background allowed), and the expected type is the namer's when it gives one of ours: the
+ * classifier took a plaid skirt for a scarf, and the generated skirt would then fail as "another type".
+ */
+export function checkTarget(ctx: Pick<AppContext, 'cfg'>, m: Pick<Material, 'desc'>, name: GarmentName | null): { kind: 'generated' | 'studio'; category: string | null; subcategory: string | null } {
+  if (ctx.cfg.CATALOG_STUDIO_PROMPT !== 'studio') return { kind: 'generated', category: m.desc.category, subcategory: m.desc.subcategory };
+  // The namer's six coarse categories and the app's taxonomy differ at the edges (a cardigan is a "top"
+  // for the classifier and often "outerwear" for the namer; it has no "swimwear"). When they disagree,
+  // one of the two is wrong and we cannot tell which: the type comparison is skipped (similarity,
+  // colours, pattern and texture still apply) instead of failing every attempt on "type".
+  if (name && CATEGORIES.has(name.category) && name.category !== m.desc.category) return { kind: 'studio', category: null, subcategory: null };
+  return { kind: 'studio', category: m.desc.category, subcategory: m.desc.subcategory };
+}
+
+/** What a generated studio cutout shows, named by the local vision-language model (on grey, as a product photo); null if unavailable. */
+async function identifyShown(ctx: AppContext, cutout: Buffer): Promise<GarmentName | null> {
+  const vlm = localVlm(ctx);
+  if (!vlm) return null;
+  const onGrey = await sharp(cutout).flatten({ background: '#e8e8e8' }).jpeg({ quality: 90 }).toBuffer().catch(() => null);
+  return onGrey ? vlm.identify(onGrey) : null;
+}
+
+/**
+ * The second look: the vision-language model compares the user's photo (the garment marked in red) with
+ * the studio cutout and lists what differs (length, cut, invented laces or logos, a lost hood); null if
+ * it cannot tell.
+ */
+async function verifyShown(ctx: AppContext, m: Material, name: GarmentName, partial: boolean, cutout: Buffer): Promise<StudioVerdict | null> {
+  const vlm = localVlm(ctx);
+  const original = attributesOf(m.vlm?.attributes);
+  // Without the detection's attributes the server reads them from the marked photo, which needs a box.
+  if (!vlm || (!original && m.multiInPhoto && !m.bbox)) return null;
+  // The cutout itself (PNG with alpha): the server measures the item's shape on it (the length of shorts).
+  const marked = await markGarment(m.photo, m.bbox, m.multiInPhoto).catch(() => null);
+  // Cut by the top or bottom of the photo, its length was not seen (a trench coat framed at the hips).
+  const lengthUnseen = !!m.bbox && (m.bbox[1] <= 0.01 || m.bbox[3] >= 0.99);
+  return marked ? vlm.verify(marked, cutout, { name: name.name, category: name.category, partial, lengthUnseen, original }) : null;
+}
+
+/** The local MLX server, whose vision-language model finds, names and describes garments; null if not configured. */
+export function localVlm(ctx: Pick<AppContext, 'catalogPhoto'>): MlxPackshot | null {
+  const vlm = ctx.catalogPhoto.vlm ?? ctx.catalogPhoto.generators.find((g): g is MlxPackshot => g instanceof MlxPackshot);
+  return vlm?.configured ? vlm : null;
+}
+
+/** The garment's shop-style name from the local MLX server's vision-language model, or null. */
+async function nameGarment(ctx: AppContext, m: Material): Promise<GarmentName | null> {
+  const namer = localVlm(ctx);
+  // Several garments but no box (a garment re-cut by hand has no detection): nothing to point the
+  // namer at, so the classifier's description is kept.
+  if (!namer || (m.multiInPhoto && !m.bbox)) return null;
+  try {
+    return await namer.describe(await markGarment(m.photo, m.bbox, m.multiInPhoto));
+  } catch {
+    return null;
+  }
+}
+
 async function generate(ctx: AppContext, userId: string, m: Material, recognised: Recognised, matches: StoredMatch[], official: StoredMatch | null) {
   const id = m.job.id;
   const finish = async (status: 'ready' | 'needs_user', message: string, generation: GenerationState) => {
@@ -877,7 +1012,13 @@ async function generate(ctx: AppContext, userId: string, m: Material, recognised
     return;
   }
   const meta = await sharp(m.cutout).metadata();
-  const insufficient = (m.job.search as { input?: JobInput }).input?.force ? null : insufficientPhoto(m.bbox, m.desc.category, { width: meta.width ?? 0, height: meta.height ?? 0 });
+  const studio = ctx.cfg.CATALOG_STUDIO_PROMPT === 'studio';
+  const forced = !!(m.job.search as { input?: JobInput }).input?.force;
+  const cut = insufficientPhoto(m.bbox, m.desc.category, { width: meta.width ?? 0, height: meta.height ?? 0 });
+  // The studio flow rebuilds a garment that is cut by the frame, small, worn or covered from its
+  // description, as Alta does (a hoodie seen only by its hood comes out whole); the packshot flow asks
+  // for another photo.
+  const insufficient = studio || forced ? null : cut;
   if (insufficient) {
     await finish('needs_user', insufficient, { skipped: 'insufficient_photo' });
     return;
@@ -890,48 +1031,118 @@ async function generate(ctx: AppContext, userId: string, m: Material, recognised
     return;
   }
   const desc: GarmentDescription = { ...m.desc, brand: m.desc.brand ?? official?.brand ?? recognised.brand, text: recognised.text && recognised.text.length <= 40 ? recognised.text : null };
+  // The garment as the vision-language model saw it: at import, in the whole photo (name, description
+  // of the complete item, partly visible?), or now, from the marked region (~1 s). The editor draws
+  // what the prompt names and describes, and the classifier's label is often wrong.
+  const name: GarmentName | null = !studio
+    ? null
+    : m.vlm
+      ? { name: m.vlm.name, colour: '', category: m.vlm.category || m.desc.category, whole: m.vlm.visible !== 'partial' }
+      : await nameGarment(ctx, m);
+  const description = studio ? (m.vlm?.description ?? null) : null;
+  // Part of the garment is hidden: cut by the frame (not merely small) or, as the model saw it, worn or covered.
+  const partial = studio && ((!!cut && cut.includes('cortada')) || (!!name && !name.whole));
+  const located = m.multiInPhoto && !!m.bbox; // several garments, and we know where this one is
+  const unclear = !forced && name ? unclearDetection(name) : null;
+  if (unclear) {
+    await finish('needs_user', unclear, { skipped: 'insufficient_photo', name });
+    return;
+  }
   const prevAttempts = ((m.job.generation as GenerationState)?.attempts ?? []).length;
   const attempts: StoredAttempt[] = [];
   let corrections: string[] = [];
+  let fixes: string[] = [];
   let best: { attempt: StoredAttempt; check: CatalogCheckResult; image: Buffer; model: string; score: number } | null = null;
-  let providerIdx = 0;
+  // Providers that cannot serve this job (a non-retryable error, a spent daily quota or budget).
+  const unusable = new Set<PackshotGenerator['id']>();
   let unchecked: { image: Buffer; model: string; n: number; ms: number; provider: PackshotGenerator['id'] } | null = null;
   const total = ctx.cfg.PACKSHOT_MAX_ATTEMPTS;
-  for (let n = 1; n <= total && providerIdx < available.length; n++) {
+  for (let n = 1; n <= total; n++) {
     if (!(await stillWanted(ctx, userId, id))) return;
-    // Last attempt goes to the fallback provider when there is one.
-    const gen = available[n === total && available.length > providerIdx + 1 ? providerIdx + 1 : providerIdx]!;
+    const pool = available.filter((g) => !unusable.has(g.id));
+    if (!pool.length) break;
+    const [primary, fallback] = pool as [PackshotGenerator, PackshotGenerator | undefined];
+    // The fallback provider (a larger model: Qwen-Image-Edit in ComfyUI behind klein in MLX) takes the
+    // last attempt, and takes over at once when the small local model drew another kind of item: klein
+    // does not know rare garments (it drew a tailcoat as a jacket with trousers, however described).
+    // FASHN or fal.ai are no weaker than what follows them, so they keep their attempts.
+    const escalate = !!fallback && (n === total || (primary.id === 'mlx' && corrections.includes('identity')));
+    const gen = escalate ? fallback! : primary;
+    // The editor keeps drawing another item or other details (a tailcoat as a suit): the last attempt
+    // cleans the garment's own cutout instead, which keeps its real shape. Not for a garment seen in part
+    // (its cutout lacks what is hidden) nor when a hosted provider (FASHN, fal) is doing the work.
+    // Only for an item nobody wears (laid out, hanging, displayed) and seen whole: the cutout of a worn
+    // item is shaped by the body (socks and tights came out as lumpy tubes).
+    const laidOut = attributesOf(m.vlm?.attributes)?.worn === false;
+    // Only when it drew another kind of item: for details (a handle, a hatband) the restored cutouts were
+    // no better in the blind check, and a cutout in pieces is refused by the server.
+    let restoring = studio && gen.id === 'mlx' && n === total && n > 1 && !partial && !!name && laidOut && corrections.includes('identity');
     await update(ctx, userId, id, { status: 'generating', stage: { step: 2, total: 3, label: n === 1 ? 'Creando la foto de estudio de tu prenda…' : `Mejorando la foto (intento ${n} de ${total})…` } });
-    const blocked = await withUser(ctx.db, userId, (trx) => allowance(ctx, trx, 'generation', gen.estimatedCostCents));
+    const blocked = await withUser(ctx.db, userId, (trx) => allowance(ctx, trx, 'generation', gen.estimatedCostCents, gen.id === 'mlx' || gen.id === 'comfy'));
     if (blocked) {
+      // A paid provider's limit or budget does not stop the free local ones (they have their own quota).
       attempts.push({ n: prevAttempts + n, provider: gen.id, model: gen.model, ms: 0, check: null, error: blocked, codes: [] });
-      break;
+      unusable.add(gen.id);
+      continue;
     }
-    const prompt = buildPackshotPrompt(desc, corrections);
-    if (m.multiInPhoto) prompt.prompt += ' The photograph shows several items: use ONLY this garment and ignore the others.';
+    const traits = attributesOf(m.vlm?.attributes);
+    const prompt = studioPrompt(ctx, desc, located, corrections, name, description, partial, fixes, { length: traits?.length ?? null, topHandle: traits ? traits.top_handle : null });
     const t0 = Date.now();
     let out;
     try {
-      out = await gen.generate({ photo: m.generatorInput, mime: 'image/jpeg', prompt, seed: Math.floor(Math.random() * 2 ** 31), ...CANVAS });
+      const seed = Math.floor(Math.random() * 2 ** 31);
+      out = restoring && gen instanceof MlxPackshot ? await gen.restore({ cutout: m.cutout, name: name!.name, description, seed }).catch(() => null) : null;
+      if (!out) {
+        restoring = false; // not restorable (a cutout in pieces): a normal attempt
+        out = await gen.generate({ photo: m.generatorInput, mime: 'image/jpeg', prompt, seed, ...(gen.canvas ?? CANVAS) });
+      }
       await recordUsage(ctx, userId, gen.id, out.costCents);
       await update(ctx, userId, id, { cost_cents: sql`cost_cents + ${out.costCents}` });
     } catch (e) {
       const msg = e instanceof Error ? e.message.slice(0, 300) : 'Error del generador.';
       attempts.push({ n: prevAttempts + n, provider: gen.id, model: gen.model, ms: Date.now() - t0, check: null, error: msg, codes: [] });
-      if (!(e instanceof GenerationError) || !e.retryable) providerIdx++; // this provider will not work: next one
+      if (!(e instanceof GenerationError) || !e.retryable) unusable.add(gen.id); // this one will not work: the others go on
       continue;
     }
+    // Small models lift dark fabrics (a black polo comes out grey): bring them back to the photo's lightness.
+    // (A studio photo is colour-matched on its cutout by the vision check instead: this fix assumes a white background.)
+    const tone = ctx.cfg.CATALOG_STUDIO_PROMPT === 'studio' ? null : await fixDarkGarmentTone(m.cutout, out.image).catch(() => null);
+    if (tone) out = { ...out, image: tone.image };
     await update(ctx, userId, id, { stage: { step: 3, total: 3, label: 'Comprobando que es fiel a tu prenda…' } });
     let check: CatalogCheckResult;
     try {
-      check = await ctx.vision.catalogCheck(m.cutout, out.image, { kind: 'generated', category: m.desc.category, subcategory: m.desc.subcategory, ocr: !!recognised.text });
+      check = await ctx.vision.catalogCheck(m.cutout, out.image, { ...checkTarget(ctx, m, name), ocr: !!recognised.text, partial });
     } catch {
       // The image is kept (it was paid for) but unverified: the user decides, nothing is regenerated.
       unchecked = { image: out.image, model: out.model, n: prevAttempts + n, ms: Date.now() - t0, provider: gen.id };
       break;
     }
+    // Is it the same kind of item? The vision-language model names what the studio photo shows and it
+    // is compared with the garment's name (black heels drawn as brown loafers, shorts drawn as jeans, a
+    // tailcoat drawn as an overcoat). The colour-and-texture check cannot see that.
+    let problems: string[] = [];
+    // The restored photo is the garment's own cutout: it is this item by construction (the namer called
+    // the real tailcoat "a jacket"), so only its presentation and colours are checked.
+    if (studio && name && !restoring) {
+      const shown = check.cutout_png_base64 ? await identifyShown(ctx, Buffer.from(check.cutout_png_base64, 'base64')) : null;
+      if (shown && sameKindOfItem(name.name, shown.name, { garment: m.desc.category, shown: shown.category }) === false) {
+        check = { ...check, fidelity: { ...check.fidelity, passed: false, codes: [...check.fidelity.codes, 'identity'], reasons: [...check.fidelity.reasons, `Muestra otra prenda (${shown.name}).`] } };
+      } else if (check.cutout_png_base64) {
+        // Same kind of item: does it look like THIS one (length, cut, details)? What differs goes, as
+        // the look it must have, into the next attempt's prompt.
+        const verdict = await verifyShown(ctx, m, name, partial, Buffer.from(check.cutout_png_base64, 'base64'));
+        if (verdict && !verdict.ok) {
+          // Another kind of item, or a whole other garment drawn with it (a tailcoat as a suit with
+          // trousers), counts as identity: only that sends the last attempt to the restored cutout.
+          const identity = verdict.problems.some((p) => /^(another kind|tails missing|other garments added)/.test(p));
+          check = { ...check, fidelity: { ...check.fidelity, passed: false, codes: [...check.fidelity.codes, identity ? 'identity' : 'details'], reasons: [...check.fidelity.reasons, identity ? 'Muestra otra prenda.' : 'No coincide del todo con tu prenda (forma, largo o detalles).'] } };
+          fixes = verdict.fix ? [verdict.fix] : fixes;
+        }
+        problems = verdict?.problems ?? [];
+      }
+    }
     const codes = [...check.presentation.codes, ...check.fidelity.codes];
-    const attemptRow: StoredAttempt = { n: prevAttempts + n, provider: gen.id, model: out.model, ms: Date.now() - t0, check: checkDto(check), error: null, codes };
+    const attemptRow: StoredAttempt = { n: prevAttempts + n, provider: gen.id, model: out.model, ms: Date.now() - t0, check: checkDto(check), error: null, codes, ...(problems.length ? { problems } : {}) };
     attempts.push(attemptRow);
     // Fidelity failures weigh more than presentation ones: a pretty photo of another garment is worse.
     const score = (check.fidelity.passed ? 2 : 0) + (check.presentation.passed ? 1 : 0) + check.fidelity.similarity - 0.05 * codes.length;
@@ -955,10 +1166,11 @@ async function generate(ctx: AppContext, userId: string, m: Material, recognised
   const cutoutPng = best.check.cutout_png_base64 ? Buffer.from(best.check.cutout_png_base64, 'base64') : best.image;
   const imageId = await storePackshot(ctx, userId, id, m, cutoutPng, best.model);
   best.attempt.imageId = imageId;
-  const generation: GenerationState = { attempts: allAttempts, passed, model: best.model, promptVersion: buildPackshotPrompt(desc).version };
+  const generation: GenerationState = { attempts: allAttempts, passed, model: best.model, promptVersion: studioPrompt(ctx, desc, located).version, name };
   if (!(await update(ctx, userId, id, { generated_image_id: imageId }))) return; // dismissed meanwhile
   if (passed) {
-    await finish('ready', official ? 'Tienes la foto oficial y una foto de estudio creada con IA: elige la que prefieras.' : 'Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.', generation);
+    const completed = partial ? ' Parte de la prenda no se veía en tu foto: la hemos completado; comprueba que es como la tuya.' : '';
+    await finish('ready', (official ? 'Tienes la foto oficial y una foto de estudio creada con IA: elige la que prefieras.' : 'Hemos creado una foto de estudio de tu prenda. Compárala con tu foto y confirma.') + completed, generation);
   } else {
     const reasons = [...best.check.presentation.reasons, ...best.check.fidelity.reasons];
     await finish('needs_user', `Tras ${attempts.length} intento${attempts.length === 1 ? '' : 's'}, la foto generada no es del todo fiel o no está bien colocada: ${reasons.join(' ')} Puedes reintentarlo, hacer otra foto (prenda extendida y con buena luz) o usarla igualmente.`, generation);

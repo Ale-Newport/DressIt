@@ -133,7 +133,10 @@ def analyze(
     mode: str = Form("single"),
     max_items: int = Form(8),
     normalize: bool = Form(True),
+    boxes: str | None = Form(None),
 ) -> AnalyzeResponse | JSONResponse:
+    """``boxes``: optional JSON list ``[{"box": [x0, y0, x1, y1], "category": str}]`` (0–1) of garments
+    already located by a vision-language model; they replace the detector (see analyze_image)."""
     settings = get_settings()
     # Already-processed images (AI studio photos) keep their pixels: no WB/exposure correction.
     if not normalize:
@@ -146,6 +149,27 @@ def analyze(
             "invalid_max_items",
             f"max_items debe estar entre 1 y {settings.max_items_limit}.",
         )
+    located = None
+    if boxes:
+        try:
+            located = json.loads(boxes)
+            if not isinstance(located, list) or len(located) > settings.max_items_limit:
+                raise ValueError
+            for b in located:
+                bx = b["box"]
+                if len(bx) != 4 or not all(
+                    isinstance(v, (int, float))
+                    and not isinstance(v, bool)
+                    and 0.0 <= v <= 1.0
+                    for v in bx
+                ):
+                    raise ValueError
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ApiError(
+                422,
+                "invalid_boxes",
+                "boxes debe ser una lista de {box: [x0, y0, x1, y1] entre 0 y 1}.",
+            ) from exc
     data = _read_upload(file)
     with _slots:
         result = analyze_image(
@@ -154,6 +178,7 @@ def analyze(
             max_items=max_items,
             backend=get_backend(),
             settings=settings,
+            boxes=located,
         )
     return JSONResponse(result)
 
@@ -233,12 +258,16 @@ def catalog_check(
     category: str | None = Form(None),
     subcategory: str | None = Form(None),
     ocr: bool = Form(False),
+    colour_fix: bool = Form(True),
+    partial: bool = Form(False),
 ) -> JSONResponse:
     """Catalogue photo check: is ``candidate`` (an AI packshot or an official store photo) a
     professional product photo, and is it the same garment as ``reference`` (the real cutout,
     RGBA PNG)? Independent of how the garment is arranged."""
-    if kind not in {"generated", "official"}:
-        raise ApiError(422, "invalid_kind", "kind debe ser 'generated' u 'official'.")
+    if kind not in {"generated", "studio", "official"}:
+        raise ApiError(
+            422, "invalid_kind", "kind debe ser 'generated', 'studio' u 'official'."
+        )
     try:
         ref = Image.open(io.BytesIO(_read_upload(reference)))
         ref.load()
@@ -257,6 +286,8 @@ def catalog_check(
             backend=get_backend(),
             settings=get_settings(),
             ocr=ocr,
+            colour_fix=colour_fix,
+            partial=partial,
         )
     return JSONResponse(result.to_dict())
 

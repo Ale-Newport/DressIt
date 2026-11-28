@@ -22,7 +22,7 @@ import { WeatherService } from '../../src/modules/weather/service.ts';
 import { ComfyError, type ImageGenerator } from '../../src/modules/imagegen/generator.ts';
 import type { ParsedRegions, TryonService } from '../../src/modules/imagegen/tryon.ts';
 import type { CatalogPhotoProviders } from '../../src/modules/catalog-photo/service.ts';
-import { GenerationError, type PackshotGenerator } from '../../src/modules/catalog-photo/generate.ts';
+import { GenerationError, MlxPackshot, type PackshotGenerator } from '../../src/modules/catalog-photo/generate.ts';
 import type { SearchProvider, WebCandidate } from '../../src/modules/catalog-photo/search.ts';
 
 export type WeatherScenario = 'cold_rain' | 'hot' | 'mild' | 'down';
@@ -184,7 +184,7 @@ export function fakeVision(): VisionClient {
   // The cut-out garment keeps the photo's (mean) colour, like the real service.
   const cutout = (rgb: { r: number; g: number; b: number }) => sharp({ create: { width: 256, height: 320, channels: 4, background: { ...rgb, alpha: 1 } } }).png().toBuffer();
   return {
-    async analyze(image: Buffer, _mime: string, mode: 'single' | 'multi'): Promise<VisionAnalysis> {
+    async analyze(image: Buffer, _mime: string, mode: 'single' | 'multi', _max?: number, opts: { boxes?: Array<{ box: [number, number, number, number]; category?: string }> } = {}): Promise<VisionAnalysis> {
       visionState.calls++;
       if (visionState.down) throw unavailable('El servicio de análisis de imágenes no está disponible.');
       const stats = await sharp(image).stats();
@@ -204,7 +204,12 @@ export function fakeVision(): VisionClient {
         embedding: embed(image),
         embedding_model: 'fake-vision-test-double',
       });
-      const items = mode === 'multi' ? [item('camiseta', 'top'), item('vaquero', 'bottom')] : [item(visionState.subcategory, visionState.subcategory ? 'top' : null)];
+      // External boxes (garments located by the VLM): one item per box, the classifier still guessing "camiseta".
+      const items = opts.boxes
+        ? opts.boxes.map((b, i) => ({ ...item('camiseta', 'top'), bbox: b.box, box_index: i }))
+        : mode === 'multi'
+          ? [item('camiseta', 'top'), item('vaquero', 'bottom')]
+          : [item(visionState.subcategory, visionState.subcategory ? 'top' : null)];
       for (const it of items) it.cutout_png_base64 = (await cutout({ r: r!, g: g!, b: b! })).toString('base64');
       return { image: { width: 100, height: 100, sha256: 'x', phash: null }, items };
     },
@@ -230,14 +235,15 @@ export function fakeVision(): VisionClient {
      * a generated packshot fails presentation while `catalogState.failPresentation` > 0 and
      * fidelity while `catalogState.failFidelity` > 0.
      */
-    async catalogCheck(reference: Buffer, candidate: Buffer, opts: { kind: 'generated' | 'official'; category?: string | null }) {
-      catalogState.checks.push(opts.kind);
+    async catalogCheck(reference: Buffer, candidate: Buffer, opts: { kind: 'generated' | 'studio' | 'official'; category?: string | null }) {
+      catalogState.checks.push(opts.kind === 'studio' ? 'generated' : opts.kind);
+      const generated = opts.kind !== 'official';
       const mean = async (b: Buffer) => (await sharp(b).flatten({ background: '#ffffff' }).stats()).channels.slice(0, 3).map((c) => c.mean);
       const [a, b] = await Promise.all([mean(reference), mean(candidate)]);
       const diff = Math.max(...a.map((x, i) => Math.abs(x - b[i]!)));
-      const forcedFid = opts.kind === 'generated' && catalogState.failFidelity > 0 ? (catalogState.failFidelity--, true) : false;
+      const forcedFid = generated && catalogState.failFidelity > 0 ? (catalogState.failFidelity--, true) : false;
       const fidOk = diff < 30 && !forcedFid;
-      const presOk = !(opts.kind === 'generated' && catalogState.failPresentation > 0 && catalogState.failPresentation--);
+      const presOk = !(generated && catalogState.failPresentation > 0 && catalogState.failPresentation--);
       return {
         presentation: {
           background_l: 99, background_l_std: 0.2, background_chroma: 0.3, margin: 0.05, extent: 0.9,
@@ -290,7 +296,35 @@ export const catalogState: {
   failFidelity: number;
   ocr: string;
   generatorAvailable: boolean;
-} = { results: [], searches: [], outputs: [], prompts: [], checks: [], failPresentation: 0, failFidelity: 0, ocr: '', generatorAvailable: true };
+  /**
+   * The local vision-language model (MLX server) as seen by the API: null = not running (default, the
+   * vision detector is used); otherwise the garments it finds in any photo and what it says a studio
+   * photo shows.
+   */
+  vlm: null | { garments: Array<Record<string, unknown>>; identify: { name: string; category: string } };
+  /** The MLX server's fast try-on (`/v1/tryon`): the render it returns (null = server down), and the calls. */
+  mlxTryon: Buffer | null;
+  mlxTryonCalls: Array<{ garments: number; prompt: string }>;
+} = { results: [], searches: [], outputs: [], prompts: [], checks: [], failPresentation: 0, failFidelity: 0, ocr: '', generatorAvailable: true, vlm: null, mlxTryon: null, mlxTryonCalls: [] };
+
+/** The MLX server's HTTP contract, answered from `catalogState.vlm` (503 while it is null). */
+const fakeMlxFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  const url = String(input);
+  const vlm = catalogState.vlm;
+  const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
+  // Up only for the fast try-on tests: never used as a catalogue generator in tests (the fake fal.ai is).
+  if (url.endsWith('/health')) return catalogState.mlxTryon ? json({ ok: true }) : json({ ok: false }, 503);
+  if (url.endsWith('/v1/tryon')) {
+    if (!catalogState.mlxTryon) return json({ error: 'down' }, 503);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { garments?: string[]; prompt?: string };
+    catalogState.mlxTryonCalls.push({ garments: body.garments?.length ?? 0, prompt: body.prompt ?? '' });
+    return new Response(new Uint8Array(catalogState.mlxTryon), { status: 200, headers: { 'content-type': 'image/png', 'x-generation-seconds': '20' } });
+  }
+  if (!vlm) return json({ error: 'down' }, 503);
+  if (url.endsWith('/v1/garments')) return json({ items: vlm.garments, seconds: 0.1 });
+  if (url.endsWith('/v1/identify') || url.endsWith('/v1/describe')) return json({ ...vlm.identify, colour: '', whole: true });
+  return json({ error: 'not found' }, 404);
+}) as typeof fetch;
 
 export function fakeCatalogPhoto(): CatalogPhotoProviders {
   const lens: SearchProvider = {
@@ -331,7 +365,8 @@ export function fakeCatalogPhoto(): CatalogPhotoProviders {
       return { image, model: 'fake-packshot', costCents: 3.5 };
     },
   };
-  return { search: [lens, lykdat], generators: [gen] };
+  const mlx = new MlxPackshot({ url: 'http://mlx.test', timeoutMs: 5000, fetcher: fakeMlxFetch });
+  return { search: [lens, lykdat], generators: [gen, mlx] };
 }
 
 /** Local fixture "store" serving synthetic product pages (not copied from any retailer). */

@@ -42,6 +42,7 @@ class ItemOut(BaseModel):
     cutout_png_base64: str
     mask_area_ratio: float
     detection_score: float | None = None
+    box_index: int | None = None  # with external boxes: which one this item came from
     category: Predicted | None
     subcategory: Predicted | None
     colors: list[ColorOut]

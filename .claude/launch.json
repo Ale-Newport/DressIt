@@ -57,6 +57,58 @@
       "runtimeExecutable": "services/tryon/run.sh",
       "runtimeArgs": [],
       "port": 8002
+    },
+    {
+      "name": "dressit-imagegen-mlx",
+      "runtimeExecutable": "services/imagegen/run-mlx.sh",
+      "runtimeArgs": [],
+      "port": 8189,
+      "url": "http://localhost:8189"
+    },
+    {
+      "name": "dressit-vision-bench",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "services/vision",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8002"
+      ],
+      "port": 8002,
+      "url": "http://localhost:8002",
+      "env": {
+        "VISION_PRELOAD": "all"
+      }
+    },
+    {
+      "name": "dressit-imagegen-mlx-bench",
+      "runtimeExecutable": "services/imagegen/run-mlx.sh",
+      "runtimeArgs": [],
+      "port": 8190,
+      "url": "http://localhost:8190",
+      "env": {
+        "MLX_PORT": "8190"
+      }
+    },
+    {
+      "name": "dressit-api-bench",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@dressit/api",
+        "start"
+      ],
+      "port": 3001,
+      "url": "http://localhost:3001",
+      "env": {
+        "API_PORT": "3001",
+        "VISION_SERVICE_URL": "http://localhost:8002",
+        "IMAGEGEN_MLX_URL": "http://127.0.0.1:8190",
+        "API_PUBLIC_URL": "http://localhost:3001"
+      }
     }
   ]
 }

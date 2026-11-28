@@ -281,3 +281,177 @@ def test_a_packshot_dressed_as_an_outfit_is_caught(monkeypatch):
         },
     )
     assert cc.added_garments(b"", "bottom", None, None) == []  # type: ignore[arg-type]
+
+
+def test_studio_photo_on_light_grey_is_cut_out_and_judged(client):
+    """kind=studio: a generated studio photo on plain light grey. The grey background passes (it is
+    removed afterwards), the cutout of the whole item comes back, and a textured background still
+    fails."""
+    m = tee_mask()
+    ref = cutout(m)
+    buf = io.BytesIO()
+    ref.save(buf, "PNG")
+
+    def check(candidate: np.ndarray, kind: str = "studio") -> dict:
+        r = client.post(
+            "/v1/catalog/check",
+            files={
+                "reference": ("r.png", buf.getvalue(), "image/png"),
+                "candidate": ("c.png", png_bytes(candidate), "image/png"),
+            },
+            data={"kind": kind, "category": "top", "subcategory": "camiseta"},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    grey = check(on_background(m, bg=(200, 200, 200)))
+    assert "background" not in grey["presentation"]["codes"]
+    assert grey["cutout_png_base64"]
+    cut = Image.open(
+        io.BytesIO(__import__("base64").b64decode(grey["cutout_png_base64"]))
+    )
+    assert cut.mode == "RGBA"
+    alpha = np.asarray(cut.getchannel("A")) > 127
+    assert 0.3 < alpha.mean() < 0.9  # the garment, not the whole frame
+    assert grey["bbox"][0] > 0.05 and grey["bbox"][2] < 0.95
+    # The same grey is not a white packshot background for the earlier kind.
+    assert (
+        "background"
+        in check(on_background(m, bg=(200, 200, 200)), kind="generated")[
+            "presentation"
+        ]["codes"]
+    )
+    # A textured background (a bed, a rug) is never a studio background.
+    assert (
+        "background"
+        in check(on_background(m, bg=(150, 120, 100), noise=40))["presentation"][
+            "codes"
+        ]
+    )
+
+
+def _solid(lab, mask=None):
+    from app.colors import lab_to_rgb
+
+    m = tee_mask() if mask is None else mask
+    rgb = np.clip(np.round(lab_to_rgb(np.array(lab, float))), 0, 255).astype(np.uint8)
+    arr = np.zeros((*m.shape, 4), np.uint8)
+    arr[m] = [*rgb, 255]
+    return Image.fromarray(arr, "RGBA")
+
+
+def _lab_of(img):
+    from app.colors import rgb_to_lab
+
+    a = np.asarray(img)
+    return rgb_to_lab(a[a[..., 3] > 200][:, :3].astype(float)).mean(axis=0)
+
+
+def test_studio_colour_is_matched_to_the_real_garment():
+    from app.pipeline.catalog_check import match_garment_colour
+
+    # A cobalt puffer drawn steel blue gets its saturation back (hue moves toward the photo).
+    out, info = match_garment_colour(_solid((45, 5, -25)), _solid((45, 15, -60)))
+    lab = _lab_of(out)
+    assert lab[2] < -45 and info["b_shift"] < -20
+    # A black polo drawn grey is darkened back; its hue is left alone (neutral garment).
+    out, info = match_garment_colour(_solid((55, 0, 0)), _solid((22, 1, 2)))
+    assert info["gamma"] > 1.5 and _lab_of(out)[0] < 30 and info["a_shift"] == 0
+    # Faded mid-blue jeans drawn near-black are lightened.
+    out, info = match_garment_colour(_solid((18, 2, -12)), _solid((48, 0, -22)))
+    assert info["gamma"] < 1 and _lab_of(out)[0] > 35
+    # A black polo drawn black is not lightened to the grey that flash made of it in the photo.
+    _, info = match_garment_colour(_solid((12, 0, 0)), _solid((40, 1, 1)))
+    assert info["gamma"] == 1.0
+    # Mid tones within the photo's light variation, and neutrals under warm light, are left as they are.
+    same, info = match_garment_colour(_solid((60, 0, 0)), _solid((52, 6, 9)))
+    assert info == {"gamma": 1.0, "a_shift": 0.0, "b_shift": 0.0}
+
+
+def test_studio_cutout_ignores_specks_and_haze(client):
+    """A dust speck in a corner and a faint contact shadow must not set the frame of a centred garment."""
+    m = tee_mask()
+    ref = cutout(m)
+    buf = io.BytesIO()
+    ref.save(buf, "PNG")
+    rgb = on_background(m, bg=(205, 205, 205))
+    rgb[2:8, 2:8] = (30, 30, 30)  # speck
+    r = client.post(
+        "/v1/catalog/check",
+        files={
+            "reference": ("r.png", buf.getvalue(), "image/png"),
+            "candidate": ("c.png", png_bytes(rgb), "image/png"),
+        },
+        data={"kind": "studio", "category": "top", "subcategory": "camiseta"},
+    )
+    body = r.json()
+    assert "cropped" not in body["presentation"]["codes"]
+    assert body["bbox"][0] > 0.05 and body["bbox"][1] > 0.1
+
+
+def test_studio_colour_fix_does_not_tint_the_neutral_parts_of_a_garment():
+    """A red hoodie with a grey hood lining: correcting the red must leave the grey grey."""
+    from app.colors import lab_to_rgb, rgb_to_lab
+    from app.pipeline.catalog_check import match_garment_colour
+
+    def two_tone(red, grey):
+        arr = np.zeros((200, 200, 4), np.uint8)
+        arr[:, :140] = [
+            *np.clip(np.round(lab_to_rgb(np.array(red, float))), 0, 255).astype(
+                np.uint8
+            ),
+            255,
+        ]
+        arr[:, 140:] = [
+            *np.clip(np.round(lab_to_rgb(np.array(grey, float))), 0, 255).astype(
+                np.uint8
+            ),
+            255,
+        ]
+        return Image.fromarray(arr, "RGBA")
+
+    out, info = match_garment_colour(
+        two_tone((50, 50, 35), (45, 0, 0)), two_tone((40, 62, 42), (40, 0, 0))
+    )
+    a = np.asarray(out)
+    grey = rgb_to_lab(a[:, 160:, :3].reshape(-1, 3).astype(float)).mean(axis=0)
+    red = rgb_to_lab(a[:, :100, :3].reshape(-1, 3).astype(float)).mean(axis=0)
+    assert abs(grey[1]) < 2 and abs(grey[2]) < 2  # still neutral
+    assert red[1] > 55  # the red got its saturation back
+
+
+def test_partly_visible_garment_is_not_held_to_a_partial_reference(client):
+    """The cutout of a worn hoodie also holds skin and the t-shirt under it: with partial=true the
+    studio photo is not failed for "missing" those colours."""
+    m = tee_mask()
+    ref_arr = np.zeros((*m.shape, 4), np.uint8)
+    ref_arr[m] = (200, 30, 40, 255)  # red garment…
+    ref_arr[200:330, 150:250] = (
+        225,
+        180,
+        160,
+        255,
+    )  # …with a face/skin patch in the middle of the cutout
+    buf = io.BytesIO()
+    Image.fromarray(ref_arr, "RGBA").save(buf, "PNG")
+
+    def check(partial: bool) -> dict:
+        r = client.post(
+            "/v1/catalog/check",
+            files={
+                "reference": ("r.png", buf.getvalue(), "image/png"),
+                "candidate": (
+                    "c.png",
+                    png_bytes(
+                        on_background(m, garment=(200, 30, 40), bg=(215, 215, 215))
+                    ),
+                    "image/png",
+                ),
+            },
+            data={"kind": "studio", "category": "top", "partial": str(partial).lower()},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["fidelity"]
+
+    assert "color" in check(False)["codes"]
+    assert "color" not in check(True)["codes"]

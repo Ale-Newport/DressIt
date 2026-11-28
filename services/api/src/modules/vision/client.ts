@@ -22,6 +22,8 @@ export interface VisionItem {
   embedding: number[] | null;
   embedding_model: string | null;
   quality?: { blur?: number; brightness?: number; warnings?: string[] };
+  /** With external boxes (analyze `boxes`): the box this item came from. */
+  box_index?: number | null;
 }
 
 export interface PointSegmentation {
@@ -127,12 +129,17 @@ export class VisionClient {
   }
 
   /** `normalize: false` keeps the pixels as they are (AI studio photos are already colour-correct). */
-  analyze(image: Buffer, mime: string, mode: 'single' | 'multi', maxItems = 8, opts: { normalize?: boolean } = {}): Promise<VisionAnalysis> {
+  /**
+   * `boxes`: garments already located by a vision-language model (0–1 of the image); they replace the
+   * detector and every one comes back (unless its mask is empty) with its `box_index`.
+   */
+  analyze(image: Buffer, mime: string, mode: 'single' | 'multi', maxItems = 8, opts: { normalize?: boolean; boxes?: Array<{ box: [number, number, number, number]; category?: string }> } = {}): Promise<VisionAnalysis> {
     const fd = new FormData();
     fd.append('file', new Blob([new Uint8Array(image)], { type: mime }), 'image');
     fd.append('mode', mode);
     fd.append('max_items', String(maxItems));
     if (opts.normalize === false) fd.append('normalize', 'false');
+    if (opts.boxes) fd.append('boxes', JSON.stringify(opts.boxes));
     return this.post('/v1/analyze', fd);
   }
 
@@ -164,7 +171,7 @@ export class VisionClient {
    * Catalogue photo check: is `candidate` (AI packshot or official store photo) a professional
    * product photo, and the same garment as `reference` (the real cutout)? Pose-independent.
    */
-  catalogCheck(reference: Buffer, candidate: Buffer, opts: { kind: 'generated' | 'official'; category?: string | null; subcategory?: string | null; ocr?: boolean }): Promise<CatalogCheckResult> {
+  catalogCheck(reference: Buffer, candidate: Buffer, opts: { kind: 'generated' | 'studio' | 'official'; category?: string | null; subcategory?: string | null; ocr?: boolean; colourFix?: boolean; partial?: boolean }): Promise<CatalogCheckResult> {
     const fd = new FormData();
     fd.append('reference', new Blob([new Uint8Array(reference)], { type: 'image/png' }), 'reference.png');
     fd.append('candidate', new Blob([new Uint8Array(candidate)]), 'candidate');
@@ -172,6 +179,10 @@ export class VisionClient {
     if (opts.category) fd.append('category', opts.category);
     if (opts.subcategory) fd.append('subcategory', opts.subcategory);
     if (opts.ocr) fd.append('ocr', 'true');
+    // kind=studio: the returned cutout has its colour matched to the real garment unless this is false.
+    if (opts.colourFix === false) fd.append('colour_fix', 'false');
+    // The user's photo shows only part of the garment (worn, covered, cut): its cutout is not a full reference.
+    if (opts.partial) fd.append('partial', 'true');
     return this.post('/v1/catalog/check', fd);
   }
 

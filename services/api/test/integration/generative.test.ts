@@ -2,7 +2,7 @@ import pg from 'pg';
 import { runRetention } from '../../src/modules/maintenance/retention.ts';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { fakeEmbed, imagegenState, multipart, registerUser, setupApp, testImage, tryonState, visionState, type TestApp } from './helpers.ts';
+import { catalogState, fakeEmbed, imagegenState, multipart, registerUser, setupApp, testImage, tryonState, visionState, type TestApp } from './helpers.ts';
 
 let t: TestApp;
 beforeAll(async () => {
@@ -23,6 +23,8 @@ beforeEach(() => {
   tryonState.composites = [];
   tryonState.noFeet = false;
   tryonState.recolor = null;
+  catalogState.mlxTryon = null;
+  catalogState.mlxTryonCalls = [];
 });
 
 type Auth = Record<string, string>;
@@ -204,6 +206,49 @@ describe('persistent avatar and sequential try-on', () => {
     const after = (await t.app.inject({ method: 'PUT', url: '/v1/me/avatar', headers: u.auth, payload: { bodyImageId: newBody, attestedSelf: true, attestedAdult: true } })).json();
     expect(after.bases).toHaveLength(0);
     expect(await countImages(u.id, ['avatar_base'])).toBe(0);
+  });
+
+  it('fast try-on: the avatar photo and each garment photo in one pass of klein, the default when the MLX server is up', async () => {
+    const { u } = await setUp();
+    const [top, bottom] = await digitise(u.auth, 'multi', { r: 120, g: 120, b: 120 });
+    const look = await outfit(u.auth, [['base', top!.id], ['bottom', bottom!.id]]);
+    catalogState.mlxTryon = await testImage({ r: 60, g: 60, b: 60 }, 'png');
+    await setEmbedding(top!.id, catalogState.mlxTryon);
+    await setEmbedding(bottom!.id, catalogState.mlxTryon);
+    expect((await t.app.inject({ method: 'GET', url: '/v1/generation/status', headers: u.auth })).json()).toMatchObject({ avatar: true, fast: true, models: { avatar: 'FLUX.2 klein 4B (MLX)' } });
+
+    const done = await render(u.auth, look);
+    expect(done).toMatchObject({ status: 'done', method: 'fast', fidelity: { passed: true } });
+    expect(done.result.generatedBy).toMatch(/FLUX.2 klein/);
+    expect(catalogState.mlxTryonCalls).toHaveLength(1);
+    expect(catalogState.mlxTryonCalls[0]).toMatchObject({ garments: 2, prompt: expect.stringMatching(/^The person from image 1 wearing this outfit: the .+ shown in image 2; the .+ shown in image 3\. /) });
+    expect(tryonState.calls).toEqual([]); // the dedicated try-on service was not used
+    // It started from the saved frontal base (the user's photo on a studio background).
+    expect((await t.app.inject({ method: 'GET', url: '/v1/me/avatar', headers: u.auth })).json().bases).toMatchObject([{ view: 'frontal', status: 'ready' }]);
+
+    // A garment whose picture is its studio photo, with no cutout linked to it, is still sent (a
+    // skirt went missing from every try-on when only cutouts counted).
+    const admin = new pg.Client({ connectionString: t.adminUrl });
+    await admin.connect();
+    try {
+      const cut = (await admin.query('select primary_image_id as id from garments where id = $1', [bottom!.id])).rows[0].id;
+      await admin.query("update garment_images set kind = 'studio' where id = $1", [cut]);
+      await admin.query("update garment_images set garment_id = null where garment_id = $1 and kind = 'cutout'", [bottom!.id]);
+    } finally {
+      await admin.end();
+    }
+    catalogState.mlxTryonCalls = [];
+    expect(await render(u.auth, look, { method: 'fast' })).toMatchObject({ status: 'done' });
+    expect(catalogState.mlxTryonCalls[0]).toMatchObject({ garments: 2 });
+
+    // A render that doesn't show the garments is rejected, as with the other methods.
+    catalogState.mlxTryon = await testImage({ r: 90, g: 10, b: 10 }, 'png');
+    expect(await render(u.auth, look, { method: 'fast' })).toMatchObject({ status: 'rejected', result: null });
+
+    // Without the MLX server, the default falls back to the try-on service; asking for `fast` is refused.
+    catalogState.mlxTryon = null;
+    const r = await t.app.inject({ method: 'POST', url: `/v1/outfits/${look}/avatar`, headers: u.auth, payload: { method: 'fast' } });
+    expect(r.statusCode).toBe(503);
   });
 
   it('dresses the avatar one garment at a time (bottom, top, then shoes) and reuses the steps it already did', async () => {

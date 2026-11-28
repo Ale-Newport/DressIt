@@ -58,7 +58,9 @@ def qwen(images: list[str], prompt: str, prefix: str, extra_lora: str | None = N
         refs.append(scale)
     enc = {f"image{i + 1}": [r, 0] for i, r in enumerate(refs)}
     wf["20"] = {"class_type": "TextEncodeQwenImageEditPlus", "inputs": {"clip": ["2", 0], "prompt": prompt, "vae": ["3", 0], **enc}}
-    wf["21"] = {"class_type": "TextEncodeQwenImageEditPlus", "inputs": {"clip": ["2", 0], "prompt": "", "vae": ["3", 0], **enc}}
+    # cfg 1.0 (Lightning): ComfyUI never evaluates the negative, so it is a zeroed copy of the positive
+    # instead of a second pass of the 7B vision-language encoder over the images (wasted seconds).
+    wf["21"] = {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["20", 0]}}
     wf["22"] = {"class_type": "FluxKontextMultiReferenceLatentMethod", "inputs": {"conditioning": ["20", 0], "reference_latents_method": "index_timestep_zero"}}
     wf["23"] = {"class_type": "FluxKontextMultiReferenceLatentMethod", "inputs": {"conditioning": ["21", 0], "reference_latents_method": "index_timestep_zero"}}
     if canvas:
@@ -75,8 +77,11 @@ def qwen(images: list[str], prompt: str, prefix: str, extra_lora: str | None = N
     return wf
 
 
-def klein(images: list[str], prompt: str, prefix: str) -> dict:
-    """FLUX.2 klein 4B (distilled, 4 steps) with one ReferenceLatent per input image."""
+def klein(images: list[str], prompt: str, prefix: str, canvas: bool = False, ref_megapixels: float = 1.0, fp16: bool = False) -> dict:
+    """FLUX.2 klein 4B (distilled, 4 steps) with one ReferenceLatent per input image. ``canvas``: the
+    output is an empty {{WIDTH}}×{{HEIGHT}} latent instead of the size of images[0]. ``fp16``: compute
+    in fp16 although run.sh starts ComfyUI with --bf16-unet (which Qwen-Image needs: it overflows in
+    fp16); bf16 is emulated on M1/M2 GPUs, and klein sampled 1.4x faster in fp16 with the same result."""
     wf: dict = {
         "1": {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": KLEIN["unet"]}},
         "2": {"class_type": "CLIPLoaderGGUF", "inputs": {"clip_name": KLEIN["clip"], "type": "flux2"}},
@@ -89,16 +94,24 @@ def klein(images: list[str], prompt: str, prefix: str) -> dict:
     for i, placeholder in enumerate(images):
         b = 10 + 5 * i
         wf[str(b)] = {"class_type": "LoadImage", "inputs": {"image": placeholder}}
-        wf[str(b + 1)] = {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": [str(b), 0], "upscale_method": "nearest-exact", "megapixels": 1.0, "resolution_steps": 1}}
+        wf[str(b + 1)] = {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": [str(b), 0], "upscale_method": "lanczos", "megapixels": ref_megapixels, "resolution_steps": 1}}
         wf[str(b + 2)] = {"class_type": "VAEEncode", "inputs": {"pixels": [str(b + 1), 0], "vae": ["3", 0]}}
         wf[str(b + 3)] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": pos, "latent": [str(b + 2), 0]}}
         wf[str(b + 4)] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": neg, "latent": [str(b + 2), 0]}}
         pos, neg = [str(b + 3), 0], [str(b + 4), 0]
         first_scaled = first_scaled or str(b + 1)
-    wf["40"] = {"class_type": "GetImageSize", "inputs": {"image": [first_scaled, 0]}}
-    wf["41"] = {"class_type": "EmptyFlux2LatentImage", "inputs": {"width": ["40", 0], "height": ["40", 1], "batch_size": 1}}
-    wf["42"] = {"class_type": "Flux2Scheduler", "inputs": {"steps": 4, "width": ["40", 0], "height": ["40", 1]}}
-    wf["43"] = {"class_type": "CFGGuider", "inputs": {"model": ["1", 0], "positive": pos, "negative": neg, "cfg": 1.0}}
+    if canvas:
+        size = {"width": "{{WIDTH}}", "height": "{{HEIGHT}}"}
+    else:
+        wf["40"] = {"class_type": "GetImageSize", "inputs": {"image": [first_scaled, 0]}}
+        size = {"width": ["40", 0], "height": ["40", 1]}
+    wf["41"] = {"class_type": "EmptyFlux2LatentImage", "inputs": {**size, "batch_size": 1}}
+    wf["42"] = {"class_type": "Flux2Scheduler", "inputs": {"steps": 4, **size}}
+    model = ["1", 0]
+    if fp16:
+        wf["6"] = {"class_type": "ModelComputeDtype", "inputs": {"model": ["1", 0], "dtype": "fp16"}}
+        model = ["6", 0]
+    wf["43"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": pos, "negative": neg, "cfg": 1.0}}
     wf["44"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": "{{SEED}}"}}
     wf["45"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}}
     wf["46"] = {"class_type": "SamplerCustomAdvanced", "inputs": {"noise": ["44", 0], "guider": ["43", 0], "sampler": ["45", 0], "sigmas": ["42", 0], "latent_image": ["41", 0]}}
@@ -134,6 +147,8 @@ WORKFLOWS = {
     "tryon-accessories": (qwen(["{{BODY_IMAGE}}", "{{OUTFIT_IMAGE}}"], ACCESSORIES_PROMPT, "dressit_tryon_accessories"), QWEN_META),
     # Persistent avatar: another camera view of the user's studio avatar (fal Multiple-Angles LoRA, Apache-2.0).
     "avatar-view": (qwen(["{{BODY_IMAGE}}"], VIEW_PROMPT, "dressit_avatar_view", ANGLES_LORA), {"model": "Qwen-Image-Edit-2511 + Multiple-Angles LoRA", "license": "Apache-2.0"}),
+    # Fast catalogue photo: FLUX.2 klein 4B distilled (4 steps), ~5x fewer weights than Qwen-Image-Edit.
+    "packshot-fast": (klein(["{{INPUT_IMAGE}}"], PACKSHOT_PROMPT, "dressit_packshot_fast", canvas=True, ref_megapixels=0.5, fp16=True), {**KLEIN_META, "canvas": [832, 1040]}),
     "avatar-fast": (klein(["{{BODY_IMAGE}}", "{{OUTFIT_IMAGE}}", "{{FACE_IMAGE}}"], AVATAR_PROMPT, "dressit_avatar_fast"), KLEIN_META),
 }
 
